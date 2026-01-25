@@ -1,22 +1,23 @@
 {
+  "name": "ams-backend",
+  "version": "1.0.0",
+  "description": "Appointment Management System Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "generate-secret": "node generate-secret.js"
+  },
   "dependencies": {
-    "axios": "^1.13.2",
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
-    "date-fns": "^4.1.0",
-    "date-fns-tz": "^3.2.0",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.1.5",
-    "next-auth": "^4.24.13",
-    "nodemailer": "^7.0.12",
-    "react-hot-toast": "^2.6.0"
+    "bcryptjs": "2.4.3",
+    "cors": "2.8.5",
+    "dotenv": "16.0.3",
+    "express": "4.18.2",
+    "jsonwebtoken": "9.0.0",
+    "mongodb": "^7.0.0",
+    "mongoose": "7.0.0"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^25.0.10",
-    "nodemon": "^3.1.11"
+    "nodemon": "3.0.0"
   }
 }
