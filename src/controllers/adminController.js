@@ -97,6 +97,31 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+
+
+// In src/controllers/adminController.js, add:
+// In src/controllers/adminController.js, add this function:
+const getClientsForStaff = async (req, res) => {
+  try {
+    // Get only client users
+    const clients = await User.find({ role: 'client' })
+      .select('-password')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      count: clients.length,
+      clients
+    });
+    
+  } catch (error) {
+    console.error('Get clients for staff error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching clients'
+    });
+  }
+};
 // Update user
 const updateUser = async (req, res) => {
   try {
@@ -137,15 +162,13 @@ const updateUser = async (req, res) => {
 };
 
 // Delete user (soft delete - deactivate)
+// src/controllers/adminController.js - Update the deleteUser function
 const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const user = await User.findByIdAndUpdate(
-      id,
-      { isActive: false },
-      { new: true }
-    ).select('-password');
+    // First check if user exists
+    const user = await User.findById(id);
     
     if (!user) {
       return res.status(404).json({
@@ -154,17 +177,28 @@ const deleteUser = async (req, res) => {
       });
     }
     
+    // Check if trying to delete self
+    if (req.user._id.toString() === id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account'
+      });
+    }
+    
+    // Actually delete the user from database
+    await User.findByIdAndDelete(id);
+    
     res.json({
       success: true,
-      message: 'User deactivated successfully',
-      user
+      message: 'User deleted permanently from database',
+      deletedUser: user.toJSON()
     });
     
   } catch (error) {
     console.error('Delete user error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while deactivating user'
+      message: 'Server error while deleting user'
     });
   }
 };
@@ -172,6 +206,7 @@ const deleteUser = async (req, res) => {
 module.exports = {
   createUser,
   getAllUsers,
+  getClientsForStaff,
   updateUser,
   deleteUser
 };

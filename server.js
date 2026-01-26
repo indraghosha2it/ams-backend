@@ -23,6 +23,7 @@ app.use(express.json());
 // Import routes
 const authRoutes = require('./src/routes/auth');
 const adminRoutes = require('./src/routes/admin');
+const staffRoutes = require('./src/routes/staff');
 
 // ====================
 // ROUTES
@@ -71,6 +72,7 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes); // Add this line
+app.use('/api/staff', staffRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
