@@ -12,12 +12,15 @@ console.log('📡 Connecting to MongoDB Atlas...');
 console.log('='.repeat(50));
 
 // Middleware
+
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:5000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+
 app.use(express.json());
 
 // Import routes
@@ -25,6 +28,8 @@ const authRoutes = require('./src/routes/auth');
 const adminRoutes = require('./src/routes/admin');
 const staffRoutes = require('./src/routes/staff');
 const clientRoutes = require('./src/routes/client');
+const doctorRoutes = require('./src/routes/doctor');
+
 
 // ====================
 // ROUTES
@@ -75,6 +80,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes); // Add this line
 app.use('/api/staff', staffRoutes);
 app.use('/api/client', clientRoutes);
+app.use('/api/doctors', doctorRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
