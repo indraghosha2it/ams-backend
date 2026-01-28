@@ -15,9 +15,16 @@ const timeSlotSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['available', 'booked', 'blocked'],
+        enum: ['available', 'processing', 'booked', 'unavailable'],
         default: 'available'
+    },
+    patientInfo: {
+        name: String,
+        phone: String,
+        email: String,
+        appointmentId: mongoose.Schema.Types.ObjectId
     }
+
 }, { _id: false });
 
 const doctorSchema = new mongoose.Schema({
