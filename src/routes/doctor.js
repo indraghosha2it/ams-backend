@@ -15,6 +15,12 @@ router.post('/:id/generate-slots', doctorController.generateDoctorSlots);
 // GET /doctors/:id/slots/:date - Get slots for date
 router.get('/:id/slots/:date', doctorController.getSlotsForDate);
 
+
+// GET /doctors/:id/available-slots - Get available slots
+router.get('/:id/available-slots', doctorController.getAvailableSlots);
+
+router.get('/:id/debug', doctorController.debugDoctor);
+
 // PUT /doctors/:id/schedule - Update schedule
 router.put('/:id/schedule', doctorController.updateSchedule);
 
@@ -26,5 +32,6 @@ router.get('/:id', doctorController.getDoctor);
 
 // DELETE /doctors/:id - Delete doctor
 router.delete('/:id', doctorController.deleteDoctor); // NEW ROUTE
+
 
 module.exports = router;

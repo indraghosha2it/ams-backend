@@ -25,7 +25,10 @@ const timeSlotSchema = new mongoose.Schema({
         appointmentId: mongoose.Schema.Types.ObjectId
     }
 
-}, { _id: false });
+},  { 
+    _id: true, // MAKE SURE THIS IS TRUE - This ensures each slot gets an _id
+    timestamps: false 
+});;
 
 const doctorSchema = new mongoose.Schema({
     name: {

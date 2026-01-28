@@ -1,15 +1,13 @@
 // src/controllers/doctorController.js
+const mongoose = require('mongoose');
 const Doctor = require('../models/doctor');
-const { generateSlots, generateSlotsForDate } = require('../utils/slotGenerator');
+const { generateSlots, generateSlotsForDate, timeToMinutes, 
+  formatTime, 
+  parseDate, 
+  formatDate  } = require('../utils/slotGenerator');
 // Add this helper function at the top of doctorController.js
-const timeToMinutes = (timeStr) => {
-    if (!timeStr || timeStr === '' || timeStr === undefined) return 0;
-    
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    if (isNaN(hours) || isNaN(minutes)) return 0;
-    
-    return hours * 60 + minutes;
-};
+
+
 
 // Create new doctor
 exports.createDoctor = async (req, res) => {
@@ -455,6 +453,9 @@ exports.getSlotsForDate = async (req, res) => {
     }
 };
 
+
+
+
 // Update doctor schedule
 exports.updateSchedule = async (req, res) => {
     try {
@@ -485,6 +486,241 @@ exports.updateSchedule = async (req, res) => {
         res.status(400).json({
             success: false,
             message: error.message
+        });
+    }
+};
+
+
+
+// Get all available slots for a doctor
+// Get all available slots for a doctor - IMPROVED VERSION
+// Get all available slots for a doctor - FIXED WITH PROPER ERROR HANDLING
+// Get all available slots for a doctor - UPDATED TO HANDLE SLOTS WITHOUT _id
+exports.getAvailableSlots = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`🔍 Fetching available slots for doctor ID: ${id}`);
+        
+        const doctor = await Doctor.findById(id);
+        
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                message: 'Doctor not found'
+            });
+        }
+        
+        console.log(`📊 Doctor: ${doctor.name}, Total slots: ${doctor.timeSlots?.length || 0}`);
+        
+        if (!doctor.timeSlots || doctor.timeSlots.length === 0) {
+            return res.json({
+                success: true,
+                data: [],
+                count: 0,
+                message: 'No slots available'
+            });
+        }
+        
+        // Get current date (today at midnight UTC)
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        
+        console.log(`📅 Today's date (UTC): ${today.toISOString()}`);
+        
+        // Filter available and future slots
+        const availableSlots = [];
+        
+        doctor.timeSlots.forEach((slot, index) => {
+            try {
+                // Skip if not available
+                if (slot.status !== 'available') {
+                    console.log(`❌ Slot not available: ${slot.date} ${slot.startTime} (Status: ${slot.status})`);
+                    return;
+                }
+                
+                // Parse date - handle MongoDB format
+                let slotDate;
+                if (slot.date && typeof slot.date === 'object' && slot.date.$date) {
+                    // MongoDB format: {"$date": "2026-01-28T00:00:00.000Z"}
+                    slotDate = new Date(slot.date.$date);
+                } else if (slot.date) {
+                    // Regular date string or Date object
+                    slotDate = new Date(slot.date);
+                } else {
+                    console.log(`⚠️ Slot has no date:`, slot);
+                    return;
+                }
+                
+                // Normalize to UTC midnight for comparison
+                const normalizedDate = new Date(Date.UTC(
+                    slotDate.getUTCFullYear(),
+                    slotDate.getUTCMonth(),
+                    slotDate.getUTCDate()
+                ));
+                
+                // Check if slot is in the future (including today)
+                const isFuture = normalizedDate >= today;
+                
+                if (!isFuture) {
+                    console.log(`⏰ Slot in past: ${normalizedDate.toISOString()} ${slot.startTime}`);
+                    return;
+                }
+                
+                // Calculate duration
+                const duration = timeToMinutes(slot.endTime) - timeToMinutes(slot.startTime);
+                
+                // Generate a unique ID if _id is missing
+                const slotId = slot._id 
+                    ? slot._id.toString() 
+                    : `slot-${doctor._id}-${formatDate(normalizedDate)}-${slot.startTime.replace(':', '')}`;
+                
+                availableSlots.push({
+                    _id: slotId,
+                    date: normalizedDate,
+                    startTime: slot.startTime,
+                    endTime: slot.endTime,
+                    duration: duration,
+                    day: normalizedDate.toLocaleDateString('en-US', { weekday: 'long' }),
+                    isBooked: false,
+                    status: slot.status,
+                    originalDate: slot.date,
+                    isFuture: true,
+                    hasOriginalId: !!slot._id
+                });
+                
+            } catch (error) {
+                console.error(`❌ Error processing slot at index ${index}:`, error);
+                console.error('Slot data:', slot);
+            }
+        });
+        
+        console.log(`✅ Found ${availableSlots.length} available future slots out of ${doctor.timeSlots.length} total`);
+        
+        // Format for frontend
+        const formattedSlots = availableSlots.map(slot => {
+            try {
+                const dateStr = formatDate(slot.date); // Use imported formatDate function
+                
+                return {
+                    _id: slot._id,
+                    date: dateStr, // YYYY-MM-DD format
+                    startTime: slot.startTime,
+                    endTime: slot.endTime,
+                    duration: slot.duration,
+                    day: slot.day,
+                    isBooked: slot.isBooked,
+                    status: slot.status,
+                    formattedDate: slot.date.toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    }),
+                    formattedTime: `${slot.startTime} - ${slot.endTime}`,
+                    timestamp: slot.date.getTime()
+                };
+            } catch (error) {
+                console.error('Error formatting slot:', error, slot);
+                return null;
+            }
+        }).filter(slot => slot !== null); // Remove any null slots
+        
+        // Sort by date and time
+        formattedSlots.sort((a, b) => {
+            if (a.date === b.date) {
+                return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+            }
+            return new Date(a.date) - new Date(b.date);
+        });
+        
+        console.log(`🎯 Sending ${formattedSlots.length} formatted slots to frontend`);
+        
+        if (formattedSlots.length > 0) {
+            console.log(`📅 First slot: ${formattedSlots[0].formattedDate} ${formattedSlots[0].formattedTime} (ID: ${formattedSlots[0]._id})`);
+            console.log(`📅 Sample slots:`, formattedSlots.slice(0, 3));
+        }
+        
+        res.json({
+            success: true,
+            data: formattedSlots,
+            count: formattedSlots.length,
+            doctor: {
+                _id: doctor._id,
+                name: doctor.name,
+                perPatientTime: doctor.perPatientTime,
+                speciality: doctor.speciality,
+                designation: doctor.designation,
+                location: doctor.location,
+                description: doctor.description,
+                image: doctor.image
+            },
+            message: `Found ${formattedSlots.length} available slots`
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in getAvailableSlots:', error);
+        console.error('❌ Error stack:', error.stack);
+        
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// Debug endpoint to check doctor data
+exports.debugDoctor = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`🔍 DEBUG: Checking doctor ${id}`);
+        
+        const doctor = await Doctor.findById(id);
+        
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                message: 'Doctor not found'
+            });
+        }
+        
+        // Check slot data
+        const slotSample = doctor.timeSlots?.slice(0, 3) || [];
+        
+        res.json({
+            success: true,
+            doctor: {
+                _id: doctor._id,
+                name: doctor.name,
+                totalSlots: doctor.timeSlots?.length || 0,
+                schedule: doctor.schedule,
+                offDays: doctor.offDays,
+                perPatientTime: doctor.perPatientTime
+            },
+            sampleSlots: slotSample.map(slot => ({
+                date: slot.date,
+                startTime: slot.startTime,
+                endTime: slot.endTime,
+                status: slot.status,
+                _id: slot._id
+            })),
+            slotStatusCount: {
+                total: doctor.timeSlots?.length || 0,
+                available: doctor.timeSlots?.filter(s => s.status === 'available').length || 0,
+                booked: doctor.timeSlots?.filter(s => s.status === 'booked').length || 0,
+                processing: doctor.timeSlots?.filter(s => s.status === 'processing').length || 0,
+                unavailable: doctor.timeSlots?.filter(s => s.status === 'unavailable').length || 0
+            },
+            message: `Doctor ${doctor.name} has ${doctor.timeSlots?.length || 0} slots`
+        });
+    } catch (error) {
+        console.error('❌ Debug error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };

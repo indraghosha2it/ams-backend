@@ -1,4 +1,4 @@
-// models/appointment.js
+// src/models/appointment.js
 const mongoose = require('mongoose');
 
 const appointmentSchema = new mongoose.Schema({
@@ -7,72 +7,107 @@ const appointmentSchema = new mongoose.Schema({
         ref: 'Doctor',
         required: true
     },
-    patientId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
-    patientName: {
+    slotId: {
         type: String,
-        required: true,
-        trim: true
-    },
-    patientEmail: {
-        type: String,
-        required: true,
-        trim: true,
-        lowercase: true
-    },
-    patientPhone: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    date: {
-        type: String, // YYYY-MM-DD
         required: true
     },
-    startTime: {
-        type: String, // HH:MM
+    patient: {
+        fullName: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        email: {
+            type: String,
+            required: true,
+            trim: true,
+            lowercase: true
+        },
+        phone: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        dateOfBirth: {
+            type: Date,
+            required: true
+        },
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'other', 'prefer-not-to-say'],
+            required: true
+        },
+        address: {
+            type: String,
+            trim: true
+        },
+        reason: {
+            type: String,
+            required: true,
+            trim: true
+        }
+    },
+    doctorInfo: {
+        name: {
+            type: String,
+            required: true
+        },
+        speciality: {
+            type: String,
+            required: true
+        },
+        designation: {
+            type: String,
+            required: true
+        },
+        location: {
+            type: String,
+            required: true
+        },
+        email: {
+            type: String,
+            required: true
+        },
+        perPatientTime: {
+            type: Number,
+            default: 15
+        }
+    },
+    appointmentDate: {
+        type: Date,
+        required: true
+    },
+    appointmentTime: {
+        type: String,
         required: true
     },
     endTime: {
-        type: String, // HH:MM
+        type: String,
         required: true
     },
     status: {
         type: String,
-        enum: ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'],
-        default: 'scheduled'
+        enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'],
+        default: 'pending'
     },
-    appointmentType: {
-        type: String,
-        enum: ['checkup', 'followup', 'consultation', 'emergency'],
-        default: 'consultation'
-    },
-    notes: {
-        type: String,
-        trim: true
-    },
-    symptoms: String,
-    previousMedicalHistory: String,
-    slotId: {
-        type: mongoose.Schema.Types.ObjectId,
-        required: true
-    },
-    bookingDate: {
+    createdAt: {
         type: Date,
         default: Date.now
     },
-    cancellationReason: String,
-    cancelledAt: Date
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
 }, {
     timestamps: true
 });
 
-// Indexes for faster queries
-appointmentSchema.index({ doctorId: 1, date: 1, status: 1 });
-appointmentSchema.index({ patientEmail: 1, date: 1 });
-appointmentSchema.index({ date: 1, startTime: 1 });
-appointmentSchema.index({ status: 1, date: 1 });
+// Add indexes for better performance
+appointmentSchema.index({ doctorId: 1, appointmentDate: 1 });
+appointmentSchema.index({ 'patient.email': 1 });
+appointmentSchema.index({ status: 1 });
+appointmentSchema.index({ appointmentDate: 1, appointmentTime: 1 });
 
-module.exports = mongoose.model('Appointment', appointmentSchema);
+const Appointment = mongoose.model('Appointment', appointmentSchema);
+
+module.exports = Appointment;

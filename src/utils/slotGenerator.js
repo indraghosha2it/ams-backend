@@ -403,7 +403,7 @@
 
 
 
-
+const mongoose = require('mongoose');
 // Helper to convert time string to minutes since midnight
 const timeToMinutes = (timeStr) => {
   if (!timeStr || timeStr === '' || timeStr === undefined) return 0;
@@ -459,14 +459,32 @@ const parseDate = (dateInput) => {
 };
 
 // Format date to YYYY-MM-DD string (UTC)
+// const formatDate = (date) => {
+//   if (!(date instanceof Date)) return '';
+  
+//   const year = date.getUTCFullYear();
+//   const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+//   const day = date.getUTCDate().toString().padStart(2, '0');
+  
+//   return `${year}-${month}-${day}`;
+// };
+// In your slotGenerator.js, check the formatDate function:
 const formatDate = (date) => {
-  if (!(date instanceof Date)) return '';
+  if (!(date instanceof Date)) {
+    console.error('❌ formatDate received non-Date:', date);
+    return '';
+  }
   
-  const year = date.getUTCFullYear();
-  const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-  const day = date.getUTCDate().toString().padStart(2, '0');
-  
-  return `${year}-${month}-${day}`;
+  try {
+    const year = date.getUTCFullYear();
+    const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = date.getUTCDate().toString().padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+  } catch (error) {
+    console.error('❌ Error in formatDate:', error, date);
+    return '';
+  }
 };
 
 // Check if slot overlaps with any break
@@ -672,7 +690,8 @@ const generateSlots = (doctor, days = 30) => {
           status: existingSlot.status, // Preserve existing status
           doctorId: doctor._id,
           day: dayName,
-          _id: existingSlot._id, // Keep original ID
+          // _id: existingSlot._id, // Keep original ID
+            _id: new mongoose.Types.ObjectId() ,
           patientInfo: existingSlot.patientInfo // Keep patient info if exists
         });
         
@@ -964,5 +983,7 @@ module.exports = {
   formatTime,
   debugSlotGeneration,
   parseDate,
-  formatDate
+  formatDate,
+   doesSlotOverlapBreak,
+  getNextAvailableTime
 };

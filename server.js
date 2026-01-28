@@ -29,7 +29,8 @@ const adminRoutes = require('./src/routes/admin');
 const staffRoutes = require('./src/routes/staff');
 const clientRoutes = require('./src/routes/client');
 const doctorRoutes = require('./src/routes/doctor');
-
+// Add this import with other route imports
+const appointmentRoutes = require('./src/routes/appointment');
 
 // ====================
 // ROUTES
@@ -73,7 +74,79 @@ app.get('/api', (req, res) => {
     }
   });
 });
-
+app.post('/api/test-appointment', (req, res) => {
+    console.log('📝 Test appointment endpoint hit');
+    console.log('📦 Request body:', req.body);
+    
+    res.json({
+        success: true,
+        message: 'Test endpoint works!',
+        receivedData: req.body
+    });
+});
+// Simple test to verify appointment creation works
+app.post('/api/appointments-test', async (req, res) => {
+    try {
+        console.log('🔧 Testing appointment creation...');
+        
+        // Test data
+        const testData = {
+            doctorId: '69799d40b4dd840d34875f84',
+            slotId: 'test-slot-' + Date.now(),
+            patient: {
+                fullName: 'Test Patient',
+                email: 'test@example.com',
+                phone: '1234567890',
+                dateOfBirth: '1990-01-01',
+                gender: 'male',
+                address: 'Test Address',
+                reason: 'Test appointment'
+            },
+            appointmentDate: '2026-01-28',
+            appointmentTime: '09:40',
+            status: 'pending'
+        };
+        
+        console.log('📦 Test data:', testData);
+        
+        // Test if Appointment model exists
+        const Appointment = require('./src/models/appointment');
+        console.log('✅ Appointment model loaded');
+        
+        // Test if Doctor model exists
+        const Doctor = require('./src/models/doctor');
+        console.log('✅ Doctor model loaded');
+        
+        // Test MongoDB connection
+        const mongoose = require('mongoose');
+        const dbStatus = mongoose.connection.readyState;
+        console.log('📊 MongoDB connection status:', 
+            dbStatus === 1 ? 'Connected' : 
+            dbStatus === 2 ? 'Connecting' : 
+            dbStatus === 3 ? 'Disconnecting' : 'Disconnected');
+        
+        res.json({
+            success: true,
+            message: 'Test completed',
+            models: {
+                appointment: 'Loaded',
+                doctor: 'Loaded'
+            },
+            mongodb: {
+                status: dbStatus,
+                connected: dbStatus === 1
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Test failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+            stack: error.stack
+        });
+    }
+});
 // Auth routes
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', authRoutes);
@@ -81,6 +154,7 @@ app.use('/api/admin', adminRoutes); // Add this line
 app.use('/api/staff', staffRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/doctors', doctorRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
