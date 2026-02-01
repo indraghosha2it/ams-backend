@@ -23,6 +23,11 @@ const timeSlotSchema = new mongoose.Schema({
         phone: String,
         email: String,
         appointmentId: mongoose.Schema.Types.ObjectId
+    },
+      serialNumber: {  // Add this field
+        type: Number,
+        default: 0,
+         min: 0 
     }
 
 },  { 

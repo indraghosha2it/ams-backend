@@ -85,6 +85,10 @@ const appointmentSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+      slotSerialNumber: { 
+        type: Number,
+        default: 0
+    },
     status: {
         type: String,
         enum: ['processing', 'pending', 'confirmed', 'completed', 'cancelled', 'no-show'],

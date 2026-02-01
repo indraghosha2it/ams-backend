@@ -21,6 +21,8 @@ router.get('/:id/available-slots', doctorController.getAvailableSlots);
 
 router.get('/:id/debug', doctorController.debugDoctor);
 
+router.get('/:id/debug-serials', doctorController.debugSerialNumbers);
+
 // PUT /doctors/:id/schedule - Update schedule
 router.put('/:id/schedule', doctorController.updateSchedule);
 

@@ -540,6 +540,397 @@ const getNextAvailableTime = (currentTime, breakTimes) => {
   return currentTime;
 };
 
+// const generateSlots = (doctor, days = 30) => {
+//   const allSlots = [];
+  
+//   // Start from today at UTC midnight
+//   const today = new Date();
+//   today.setUTCHours(0, 0, 0, 0);
+  
+//   const endDate = new Date(today);
+//   endDate.setUTCDate(today.getUTCDate() + days);
+  
+//   const perPatientTime = doctor.perPatientTime || 15;
+  
+//   console.log(`\n=== SLOT GENERATION START ===`);
+//   console.log(`Doctor: ${doctor.name}`);
+//   console.log(`Start Date: ${formatDate(today)}`);
+//   console.log(`End Date: ${formatDate(endDate)}`);
+//   console.log(`Per Patient Time: ${perPatientTime} minutes`);
+  
+//   // Get existing slots and create a map for quick lookup
+//   const existingSlots = doctor.timeSlots || [];
+//   const existingSlotsMap = new Map();
+  
+//   // Create a map of existing slots for O(1) lookup
+//   existingSlots.forEach(slot => {
+//     const dateStr = formatDate(parseDate(slot.date));
+//     const key = `${dateStr}_${slot.startTime}_${slot.endTime}`;
+//     existingSlotsMap.set(key, {
+//       ...slot,
+//       _id: slot._id, // Preserve the original ID
+//       patientInfo: slot.patientInfo || null // Preserve patient info if exists
+//     });
+//   });
+  
+//   console.log(`📊 Existing slots: ${existingSlots.length}`);
+//   console.log(`   Booked slots: ${existingSlots.filter(s => s.status === 'booked').length}`);
+//   console.log(`   Processing slots: ${existingSlots.filter(s => s.status === 'processing').length}`);
+//   console.log(`   Unavailable slots: ${existingSlots.filter(s => s.status === 'unavailable').length}`);
+//   console.log(`   Available slots: ${existingSlots.filter(s => s.status === 'available').length}`);
+  
+//   // Parse off days into a Set for O(1) lookup
+//   const offDaysSet = new Set();
+//   if (doctor.offDays && Array.isArray(doctor.offDays)) {
+//     doctor.offDays.forEach(offDay => {
+//       if (!offDay.date) return;
+      
+//       const offDate = parseDate(offDay.date);
+//       if (offDate) {
+//         const dateKey = formatDate(offDate);
+//         offDaysSet.add(dateKey);
+//         console.log(`📌 Off Day: ${dateKey} - ${offDay.reason || 'No reason'}`);
+//       }
+//     });
+//   }
+  
+//   console.log(`Total off days: ${offDaysSet.size}`);
+  
+//   // Generate slots day by day
+//   for (let d = new Date(today); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+//     const currentDate = new Date(d);
+//     currentDate.setUTCHours(0, 0, 0, 0);
+    
+//     const dateStr = formatDate(currentDate);
+//     const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' });
+    
+//     console.log(`\n📅 Processing: ${dateStr} (${dayName})`);
+    
+//     // 1. Check if it's an off day
+//     if (offDaysSet.has(dateStr)) {
+//       console.log(`   ❌ SKIPPING - This is an OFF day`);
+//       continue;
+//     }
+    
+//     // 2. Find schedule for this day
+//     const daySchedule = doctor.schedule?.find(s => s.day === dayName);
+    
+//     // 3. Check if working day
+//     if (!daySchedule || !daySchedule.isWorking || !daySchedule.startTime || !daySchedule.endTime) {
+//       console.log(`   ⚠️ SKIPPING - Not a working day`);
+//       continue;
+//     }
+    
+//     // 4. Parse working hours
+//     const workStart = timeToMinutes(daySchedule.startTime);
+//     const workEnd = timeToMinutes(daySchedule.endTime);
+    
+//     if (workStart >= workEnd) {
+//       console.log(`   ⚠️ SKIPPING - Invalid working hours: ${daySchedule.startTime} to ${daySchedule.endTime}`);
+//       continue;
+//     }
+    
+//     console.log(`   ✅ Working Day: ${daySchedule.startTime} - ${daySchedule.endTime}`);
+    
+//     // 5. Get and sort breaks
+//     const breakTimes = daySchedule.breakTimes || [];
+//     const sortedBreaks = [...breakTimes].sort((a, b) => 
+//       timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+//     );
+    
+//     if (sortedBreaks.length > 0) {
+//       console.log(`   ⏸️  Break Times: ${sortedBreaks.map(b => `${b.startTime}-${b.endTime}`).join(', ')}`);
+//     }
+    
+//     // 6. Generate slots with intelligent break handling
+//     let currentTime = workStart;
+//     let totalSlotsForDay = 0;
+//     let preservedSlotsForDay = 0;
+//     let newSlotsForDay = 0;
+    
+//     while (currentTime + perPatientTime <= workEnd) {
+//       // First, check if current time is within a break
+//       const nextTime = getNextAvailableTime(currentTime, sortedBreaks);
+//       if (nextTime !== currentTime) {
+//         console.log(`      ⏸️  Jumping from ${formatTime(currentTime)} to ${formatTime(nextTime)} (break time)`);
+//         currentTime = nextTime;
+//         continue;
+//       }
+      
+//       const slotStart = currentTime;
+//       const slotEnd = currentTime + perPatientTime;
+      
+//       // Final overlap check (for edge cases)
+//       const overlapCheck = doesSlotOverlapBreak(slotStart, slotEnd, sortedBreaks);
+//       if (overlapCheck && overlapCheck.overlaps) {
+//         console.log(`      ⏸️  Slot ${formatTime(slotStart)}-${formatTime(slotEnd)} overlaps break ${overlapCheck.breakTime.startTime}-${overlapCheck.breakTime.endTime}`);
+//         currentTime = overlapCheck.breakEnd;
+//         continue;
+//       }
+      
+//       // Check if this slot already exists
+//       const slotKey = `${dateStr}_${formatTime(slotStart)}_${formatTime(slotEnd)}`;
+//       const existingSlot = existingSlotsMap.get(slotKey);
+      
+//       if (existingSlot) {
+//         // Slot already exists - preserve it with its CURRENT STATUS (whatever it is)
+//         const statusEmoji = {
+//           'booked': '📅',
+//           'processing': '⏳',
+//           'unavailable': '🚫',
+//           'available': '✅'
+//         }[existingSlot.status] || '❓';
+        
+//         console.log(`      ${statusEmoji} Preserving slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Status: ${existingSlot.status})`);
+        
+//         allSlots.push({
+//           date: dateStr,
+//           startTime: formatTime(slotStart),
+//           endTime: formatTime(slotEnd),
+//           status: existingSlot.status, // Preserve existing status
+//           doctorId: doctor._id,
+//           day: dayName,
+//           // _id: existingSlot._id, // Keep original ID
+//             _id: new mongoose.Types.ObjectId() ,
+//           patientInfo: existingSlot.patientInfo // Keep patient info if exists
+//         });
+        
+//         preservedSlotsForDay++;
+//         existingSlotsMap.delete(slotKey); // Remove from map to track what we've preserved
+//       } else {
+//         // New slot - create as available
+//         console.log(`      ➕ Creating NEW slot: ${formatTime(slotStart)}-${formatTime(slotEnd)}`);
+        
+//         allSlots.push({
+//           date: dateStr,
+//           startTime: formatTime(slotStart),
+//           endTime: formatTime(slotEnd),
+//           status: 'available',
+//           doctorId: doctor._id,
+//           day: dayName
+//         });
+        
+//         newSlotsForDay++;
+//       }
+      
+//       totalSlotsForDay++;
+//       currentTime = slotEnd;
+//     }
+    
+//     console.log(`   📊 Day Summary: Total: ${totalSlotsForDay}, Preserved: ${preservedSlotsForDay}, New: ${newSlotsForDay}`);
+//   }
+  
+//   // Add any existing slots that were for dates beyond our generation range
+//   // but we should keep them (like booked slots for future dates beyond regeneration range)
+//   const todayStr = formatDate(today);
+//   existingSlots.forEach(slot => {
+//     const slotDateStr = formatDate(parseDate(slot.date));
+//     const slotKey = `${slotDateStr}_${slot.startTime}_${slot.endTime}`;
+    
+//     // Skip slots in the past
+//     if (slotDateStr < todayStr) {
+//       return;
+//     }
+    
+//     // If slot is not in our generated slots and still exists in the map (wasn't processed above)
+//     // This handles slots that are beyond our regeneration date range
+//     if (existingSlotsMap.has(slotKey)) {
+//       console.log(`📅 Preserving future slot beyond range: ${slotDateStr} ${slot.startTime}-${slot.endTime} (Status: ${slot.status})`);
+//       allSlots.push({
+//         date: slotDateStr,
+//         startTime: slot.startTime,
+//         endTime: slot.endTime,
+//         status: slot.status,
+//         doctorId: doctor._id,
+//         day: parseDate(slot.date).toLocaleDateString('en-US', { weekday: 'long' }),
+//         _id: slot._id,
+//         patientInfo: slot.patientInfo
+//       });
+//     }
+//   });
+  
+//   // Sort slots by date and time for better organization
+//   allSlots.sort((a, b) => {
+//     if (a.date === b.date) {
+//       return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+//     }
+//     return a.date.localeCompare(b.date);
+//   });
+  
+//   // Count final statistics
+//   const bookedCount = allSlots.filter(s => s.status === 'booked').length;
+//   const processingCount = allSlots.filter(s => s.status === 'processing').length;
+//   const unavailableCount = allSlots.filter(s => s.status === 'unavailable').length;
+//   const availableCount = allSlots.filter(s => s.status === 'available').length;
+  
+//   console.log(`\n🎉 SLOT GENERATION COMPLETE:`);
+//   console.log(`📊 FINAL SLOT COUNT: ${allSlots.length}`);
+//   console.log(`   📅 Booked slots: ${bookedCount} (preserved)`);
+//   console.log(`   ⏳ Processing slots: ${processingCount} (preserved)`);
+//   console.log(`   🚫 Unavailable slots: ${unavailableCount} (preserved)`);
+//   console.log(`   ✅ Available slots: ${availableCount} (existing + new)`);
+  
+//   // Validation check - ensure no slots on off days
+//   const slotsOnOffDays = allSlots.filter(slot => offDaysSet.has(slot.date));
+//   if (slotsOnOffDays.length > 0) {
+//     console.error(`\n❌ ERROR: ${slotsOnOffDays.length} slots on off days! Removing them...`);
+    
+//     // Filter out slots on off days
+//     const filteredSlots = allSlots.filter(slot => !offDaysSet.has(slot.date));
+    
+//     // Log what was removed
+//     slotsOnOffDays.forEach(slot => {
+//       console.log(`   ❌ Removed slot: ${slot.date} ${slot.startTime}-${slot.endTime} (Status: ${slot.status})`);
+//     });
+    
+//     console.log(`✅ Cleaned slots: ${filteredSlots.length} slots remaining`);
+    
+//     return filteredSlots;
+//   }
+  
+//   console.log(`✅ SUCCESS: No slots generated for off days`);
+//   console.log('='.repeat(60));
+  
+//   return allSlots;
+// };
+
+// // Generate slots for a specific date (for testing/debugging)
+// const generateSlotsForDate = (doctor, date) => {
+//   const slots = [];
+//   const currentDate = parseDate(date);
+//   if (!currentDate) {
+//     console.log(`❌ Invalid date: ${date}`);
+//     return slots;
+//   }
+  
+//   const dateStr = formatDate(currentDate);
+//   const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' });
+//   const perPatientTime = doctor.perPatientTime || 15;
+  
+//   console.log(`\n🔍 Generating slots for: ${dateStr} (${dayName})`);
+  
+//   // Check if off day
+//   const isOffDay = doctor.offDays?.some(offDay => {
+//     const offDate = parseDate(offDay.date);
+//     return offDate && formatDate(offDate) === dateStr;
+//   });
+  
+//   if (isOffDay) {
+//     console.log(`❌ This is an OFF day - NO SLOTS`);
+//     return slots;
+//   }
+  
+//   // Find schedule
+//   const daySchedule = doctor.schedule?.find(s => s.day === dayName && s.isWorking);
+  
+//   if (!daySchedule || !daySchedule.startTime || !daySchedule.endTime) {
+//     console.log(`❌ Not a working day or no schedule`);
+//     return slots;
+//   }
+  
+//   const workStart = timeToMinutes(daySchedule.startTime);
+//   const workEnd = timeToMinutes(daySchedule.endTime);
+//   const breakTimes = daySchedule.breakTimes || [];
+  
+//   console.log(`✅ Working hours: ${daySchedule.startTime} - ${daySchedule.endTime}`);
+//   if (breakTimes.length > 0) {
+//     console.log(`⏸️ Breaks: ${breakTimes.map(b => `${b.startTime}-${b.endTime}`).join(', ')}`);
+//   }
+  
+//   // Get existing slots for this date
+//   const existingSlots = (doctor.timeSlots || []).filter(slot => {
+//     const slotDate = parseDate(slot.date);
+//     return slotDate && formatDate(slotDate) === dateStr;
+//   });
+  
+//   // Create a map of existing slots
+//   const existingSlotsMap = new Map();
+//   existingSlots.forEach(slot => {
+//     const key = `${slot.startTime}_${slot.endTime}`;
+//     existingSlotsMap.set(key, slot);
+//   });
+  
+//   let currentTime = workStart;
+//   let totalSlotsForDay = 0;
+//   let preservedSlotsForDay = 0;
+//   let newSlotsForDay = 0;
+  
+//   while (currentTime + perPatientTime <= workEnd) {
+//     // Skip breaks if current time is within one
+//     const nextTime = getNextAvailableTime(currentTime, breakTimes);
+//     if (nextTime !== currentTime) {
+//       console.log(`   ⏸️ Jumping from ${formatTime(currentTime)} to ${formatTime(nextTime)} (break)`);
+//       currentTime = nextTime;
+//       continue;
+//     }
+    
+//     const slotStart = currentTime;
+//     const slotEnd = currentTime + perPatientTime;
+    
+//     // Final overlap check
+//     const overlapCheck = doesSlotOverlapBreak(slotStart, slotEnd, breakTimes);
+//     if (overlapCheck && overlapCheck.overlaps) {
+//       console.log(`   ⏸️ Slot ${formatTime(slotStart)}-${formatTime(slotEnd)} overlaps break ${overlapCheck.breakTime.startTime}-${overlapCheck.breakTime.endTime}`);
+//       currentTime = overlapCheck.breakEnd;
+//       continue;
+//     }
+    
+//     // Check if slot already exists
+//     const slotKey = `${formatTime(slotStart)}_${formatTime(slotEnd)}`;
+//     const existingSlot = existingSlotsMap.get(slotKey);
+    
+//     if (existingSlot) {
+//       // Preserve existing slot with its CURRENT STATUS
+//       const statusEmoji = {
+//         'booked': '📅',
+//         'processing': '⏳', 
+//         'unavailable': '🚫',
+//         'available': '✅'
+//       }[existingSlot.status] || '❓';
+      
+//       console.log(`   ${statusEmoji} Preserved slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Status: ${existingSlot.status})`);
+      
+//       slots.push({
+//         date: dateStr,
+//         startTime: formatTime(slotStart),
+//         endTime: formatTime(slotEnd),
+//         status: existingSlot.status,
+//         doctorId: doctor._id,
+//         day: dayName,
+//         _id: existingSlot._id,
+//         patientInfo: existingSlot.patientInfo
+//       });
+      
+//       preservedSlotsForDay++;
+//     } else {
+//       // Create new slot
+//       console.log(`   ➕ New slot: ${formatTime(slotStart)}-${formatTime(slotEnd)}`);
+      
+//       slots.push({
+//         date: dateStr,
+//         startTime: formatTime(slotStart),
+//         endTime: formatTime(slotEnd),
+//         status: 'available',
+//         doctorId: doctor._id,
+//         day: dayName
+//       });
+      
+//       newSlotsForDay++;
+//     }
+    
+//     totalSlotsForDay++;
+//     currentTime = slotEnd;
+//   }
+  
+//   console.log(`📊 Total slots for ${dateStr}: ${totalSlotsForDay} (Preserved: ${preservedSlotsForDay}, New: ${newSlotsForDay})`);
+//   return slots;
+// };
+
+// Debug function to check specific issues
+
+
+// In slotGenerator.js - Update the generateSlots function
+
 const generateSlots = (doctor, days = 30) => {
   const allSlots = [];
   
@@ -569,7 +960,8 @@ const generateSlots = (doctor, days = 30) => {
     existingSlotsMap.set(key, {
       ...slot,
       _id: slot._id, // Preserve the original ID
-      patientInfo: slot.patientInfo || null // Preserve patient info if exists
+      patientInfo: slot.patientInfo || null, // Preserve patient info if exists
+      serialNumber: slot.serialNumber || 0 // Preserve serial number if exists
     });
   });
   
@@ -647,6 +1039,7 @@ const generateSlots = (doctor, days = 30) => {
     let totalSlotsForDay = 0;
     let preservedSlotsForDay = 0;
     let newSlotsForDay = 0;
+    let slotSerial = 1; // Reset serial number for each day, starting from 1
     
     while (currentTime + perPatientTime <= workEnd) {
       // First, check if current time is within a break
@@ -681,7 +1074,7 @@ const generateSlots = (doctor, days = 30) => {
           'available': '✅'
         }[existingSlot.status] || '❓';
         
-        console.log(`      ${statusEmoji} Preserving slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Status: ${existingSlot.status})`);
+        console.log(`      ${statusEmoji} Preserving slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Serial: ${existingSlot.serialNumber || slotSerial}, Status: ${existingSlot.status})`);
         
         allSlots.push({
           date: dateStr,
@@ -690,16 +1083,16 @@ const generateSlots = (doctor, days = 30) => {
           status: existingSlot.status, // Preserve existing status
           doctorId: doctor._id,
           day: dayName,
-          // _id: existingSlot._id, // Keep original ID
-            _id: new mongoose.Types.ObjectId() ,
-          patientInfo: existingSlot.patientInfo // Keep patient info if exists
+          _id: existingSlot._id, // Keep original ID
+          patientInfo: existingSlot.patientInfo, // Keep patient info if exists
+          serialNumber: existingSlot.serialNumber || slotSerial // Preserve existing serial or assign new
         });
         
         preservedSlotsForDay++;
         existingSlotsMap.delete(slotKey); // Remove from map to track what we've preserved
       } else {
         // New slot - create as available
-        console.log(`      ➕ Creating NEW slot: ${formatTime(slotStart)}-${formatTime(slotEnd)}`);
+        console.log(`      ➕ Creating NEW slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Serial: ${slotSerial})`);
         
         allSlots.push({
           date: dateStr,
@@ -707,13 +1100,15 @@ const generateSlots = (doctor, days = 30) => {
           endTime: formatTime(slotEnd),
           status: 'available',
           doctorId: doctor._id,
-          day: dayName
+          day: dayName,
+          serialNumber: slotSerial // Assign serial number
         });
         
         newSlotsForDay++;
       }
       
       totalSlotsForDay++;
+      slotSerial++; // Increment serial number for next slot in the same day
       currentTime = slotEnd;
     }
     
@@ -723,6 +1118,30 @@ const generateSlots = (doctor, days = 30) => {
   // Add any existing slots that were for dates beyond our generation range
   // but we should keep them (like booked slots for future dates beyond regeneration range)
   const todayStr = formatDate(today);
+  
+  // Group existing slots by date to calculate serial numbers for preserved future slots
+  const existingSlotsByDate = new Map();
+  existingSlots.forEach(slot => {
+    const slotDateStr = formatDate(parseDate(slot.date));
+    if (!existingSlotsByDate.has(slotDateStr)) {
+      existingSlotsByDate.set(slotDateStr, []);
+    }
+    existingSlotsByDate.get(slotDateStr).push(slot);
+  });
+  
+  // Sort slots in each date group by start time
+  existingSlotsByDate.forEach((slots, dateStr) => {
+    slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    
+    // Assign serial numbers if not already assigned
+    slots.forEach((slot, index) => {
+      if (!slot.serialNumber) {
+        slot.serialNumber = index + 1;
+      }
+    });
+  });
+  
+  // Add preserved future slots
   existingSlots.forEach(slot => {
     const slotDateStr = formatDate(parseDate(slot.date));
     const slotKey = `${slotDateStr}_${slot.startTime}_${slot.endTime}`;
@@ -735,7 +1154,7 @@ const generateSlots = (doctor, days = 30) => {
     // If slot is not in our generated slots and still exists in the map (wasn't processed above)
     // This handles slots that are beyond our regeneration date range
     if (existingSlotsMap.has(slotKey)) {
-      console.log(`📅 Preserving future slot beyond range: ${slotDateStr} ${slot.startTime}-${slot.endTime} (Status: ${slot.status})`);
+      console.log(`📅 Preserving future slot beyond range: ${slotDateStr} ${slot.startTime}-${slot.endTime} (Serial: ${slot.serialNumber || 'N/A'}, Status: ${slot.status})`);
       allSlots.push({
         date: slotDateStr,
         startTime: slot.startTime,
@@ -744,7 +1163,8 @@ const generateSlots = (doctor, days = 30) => {
         doctorId: doctor._id,
         day: parseDate(slot.date).toLocaleDateString('en-US', { weekday: 'long' }),
         _id: slot._id,
-        patientInfo: slot.patientInfo
+        patientInfo: slot.patientInfo,
+        serialNumber: slot.serialNumber || 1 // Use existing serial or default to 1
       });
     }
   });
@@ -757,30 +1177,70 @@ const generateSlots = (doctor, days = 30) => {
     return a.date.localeCompare(b.date);
   });
   
+  // Ensure serial numbers are properly assigned for all slots
+  const slotsByDate = new Map();
+  allSlots.forEach(slot => {
+    if (!slotsByDate.has(slot.date)) {
+      slotsByDate.set(slot.date, []);
+    }
+    slotsByDate.get(slot.date).push(slot);
+  });
+  
+  // Re-assign serial numbers by date and time
+  const finalSlots = [];
+  slotsByDate.forEach((slots, date) => {
+    // Sort slots by start time for this date
+    slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    
+    // Assign serial numbers 1, 2, 3...
+    slots.forEach((slot, index) => {
+      finalSlots.push({
+        ...slot,
+        serialNumber: index + 1
+      });
+    });
+  });
+  
+  // Sort final slots
+  finalSlots.sort((a, b) => {
+    if (a.date === b.date) {
+      return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+    }
+    return a.date.localeCompare(b.date);
+  });
+  
   // Count final statistics
-  const bookedCount = allSlots.filter(s => s.status === 'booked').length;
-  const processingCount = allSlots.filter(s => s.status === 'processing').length;
-  const unavailableCount = allSlots.filter(s => s.status === 'unavailable').length;
-  const availableCount = allSlots.filter(s => s.status === 'available').length;
+  const bookedCount = finalSlots.filter(s => s.status === 'booked').length;
+  const processingCount = finalSlots.filter(s => s.status === 'processing').length;
+  const unavailableCount = finalSlots.filter(s => s.status === 'unavailable').length;
+  const availableCount = finalSlots.filter(s => s.status === 'available').length;
   
   console.log(`\n🎉 SLOT GENERATION COMPLETE:`);
-  console.log(`📊 FINAL SLOT COUNT: ${allSlots.length}`);
+  console.log(`📊 FINAL SLOT COUNT: ${finalSlots.length}`);
   console.log(`   📅 Booked slots: ${bookedCount} (preserved)`);
   console.log(`   ⏳ Processing slots: ${processingCount} (preserved)`);
   console.log(`   🚫 Unavailable slots: ${unavailableCount} (preserved)`);
   console.log(`   ✅ Available slots: ${availableCount} (existing + new)`);
   
+  // Log serial number distribution
+  console.log(`\n📝 SERIAL NUMBER ASSIGNMENT:`);
+  const dates = [...new Set(finalSlots.map(slot => slot.date))];
+  dates.forEach(date => {
+    const dateSlots = finalSlots.filter(slot => slot.date === date);
+    console.log(`   ${date}: ${dateSlots.length} slots (Serial: 1 to ${dateSlots.length})`);
+  });
+  
   // Validation check - ensure no slots on off days
-  const slotsOnOffDays = allSlots.filter(slot => offDaysSet.has(slot.date));
+  const slotsOnOffDays = finalSlots.filter(slot => offDaysSet.has(slot.date));
   if (slotsOnOffDays.length > 0) {
     console.error(`\n❌ ERROR: ${slotsOnOffDays.length} slots on off days! Removing them...`);
     
     // Filter out slots on off days
-    const filteredSlots = allSlots.filter(slot => !offDaysSet.has(slot.date));
+    const filteredSlots = finalSlots.filter(slot => !offDaysSet.has(slot.date));
     
     // Log what was removed
     slotsOnOffDays.forEach(slot => {
-      console.log(`   ❌ Removed slot: ${slot.date} ${slot.startTime}-${slot.endTime} (Status: ${slot.status})`);
+      console.log(`   ❌ Removed slot: ${slot.date} ${slot.startTime}-${slot.endTime} (Serial: ${slot.serialNumber}, Status: ${slot.status})`);
     });
     
     console.log(`✅ Cleaned slots: ${filteredSlots.length} slots remaining`);
@@ -791,10 +1251,13 @@ const generateSlots = (doctor, days = 30) => {
   console.log(`✅ SUCCESS: No slots generated for off days`);
   console.log('='.repeat(60));
   
-  return allSlots;
+  return finalSlots;
 };
 
-// Generate slots for a specific date (for testing/debugging)
+
+
+
+
 const generateSlotsForDate = (doctor, date) => {
   const slots = [];
   const currentDate = parseDate(date);
@@ -847,13 +1310,17 @@ const generateSlotsForDate = (doctor, date) => {
   const existingSlotsMap = new Map();
   existingSlots.forEach(slot => {
     const key = `${slot.startTime}_${slot.endTime}`;
-    existingSlotsMap.set(key, slot);
+    existingSlotsMap.set(key, {
+      ...slot,
+      serialNumber: slot.serialNumber || 0
+    });
   });
   
   let currentTime = workStart;
   let totalSlotsForDay = 0;
   let preservedSlotsForDay = 0;
   let newSlotsForDay = 0;
+  let slotSerial = 1; // Reset serial number for this date
   
   while (currentTime + perPatientTime <= workEnd) {
     // Skip breaks if current time is within one
@@ -888,7 +1355,7 @@ const generateSlotsForDate = (doctor, date) => {
         'available': '✅'
       }[existingSlot.status] || '❓';
       
-      console.log(`   ${statusEmoji} Preserved slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Status: ${existingSlot.status})`);
+      console.log(`   ${statusEmoji} Preserved slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Serial: ${existingSlot.serialNumber || slotSerial}, Status: ${existingSlot.status})`);
       
       slots.push({
         date: dateStr,
@@ -898,13 +1365,15 @@ const generateSlotsForDate = (doctor, date) => {
         doctorId: doctor._id,
         day: dayName,
         _id: existingSlot._id,
-        patientInfo: existingSlot.patientInfo
+        patientInfo: existingSlot.patientInfo,
+        serialNumber: existingSlot.serialNumber || slotSerial
       });
       
       preservedSlotsForDay++;
+      existingSlotsMap.delete(slotKey); // Remove from map
     } else {
       // Create new slot
-      console.log(`   ➕ New slot: ${formatTime(slotStart)}-${formatTime(slotEnd)}`);
+      console.log(`   ➕ New slot: ${formatTime(slotStart)}-${formatTime(slotEnd)} (Serial: ${slotSerial})`);
       
       slots.push({
         date: dateStr,
@@ -912,21 +1381,34 @@ const generateSlotsForDate = (doctor, date) => {
         endTime: formatTime(slotEnd),
         status: 'available',
         doctorId: doctor._id,
-        day: dayName
+        day: dayName,
+        serialNumber: slotSerial
       });
       
       newSlotsForDay++;
     }
     
     totalSlotsForDay++;
+    slotSerial++;
     currentTime = slotEnd;
   }
   
   console.log(`📊 Total slots for ${dateStr}: ${totalSlotsForDay} (Preserved: ${preservedSlotsForDay}, New: ${newSlotsForDay})`);
+  
+  // Sort slots by time and ensure proper serial numbers
+  slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+  
+  // Re-assign serial numbers 1, 2, 3...
+  slots.forEach((slot, index) => {
+    slot.serialNumber = index + 1;
+  });
+  
   return slots;
 };
 
-// Debug function to check specific issues
+
+
+
 const debugSlotGeneration = (doctor, specificDate = '2026-01-29') => {
   console.log('\n🔍 DEBUGGING SLOT GENERATION');
   console.log('='.repeat(50));
