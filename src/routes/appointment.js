@@ -9,6 +9,8 @@ router.use((req, res, next) => {
     console.log(`👤 User: ${req.user?.email || 'No user'}`);
     next();
 });
+
+router.post('/client-book', appointmentController.createClientAppointment);
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
