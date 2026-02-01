@@ -521,7 +521,7 @@ exports.createClientAppointment = async (req, res) => {
         } = req.body;
         
         // Set status to 'processing' for client bookings
-        const status = 'processing';
+        const status = 'pending';
         
         // Validate required fields
         if (!doctorId || !slotId || !patient || !appointmentDate || !appointmentTime) {
@@ -707,7 +707,7 @@ exports.createClientAppointment = async (req, res) => {
             console.log('- Status:', status);
             
             // 2. Update doctor's slot status to 'processing' (not 'booked')
-            doctor.timeSlots[slotIndex].status = 'processing';
+            doctor.timeSlots[slotIndex].status = 'booked';
             doctor.timeSlots[slotIndex].patientInfo = {
                 name: patient.fullName,
                 phone: patient.phone,
