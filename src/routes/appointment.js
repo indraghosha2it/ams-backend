@@ -32,6 +32,12 @@ router.get('/patient/:email', appointmentController.getAppointmentsByPatientEmai
 // PUT /appointments/:id/status - Update appointment status - admin/staff only
 router.put('/:id/status', requireRole('admin', 'staff'), appointmentController.updateAppointmentStatus);
 
+// Add this route for client cancellations
+router.put('/:id/cancel', authMiddleware, requireRole('client'), appointmentController.cancelClientAppointment);
+
+// PUT /appointments/:id/reschedule - Reschedule appointment (client only)
+router.put('/:id/reschedule', authMiddleware, requireRole('client'), appointmentController.rescheduleAppointment);
+
 // PUT /appointments/:id - Update appointment (for rescheduling)
 router.put('/:id', requireRole('admin', 'staff'), appointmentController.updateAppointment);
 

@@ -1107,3 +1107,366 @@ exports.createClientAppointment = async (req, res) => {
         });
     }
 };
+
+
+// Cancel appointment (client only - can only cancel their own appointments)
+// Cancel appointment (client only - can only cancel their own appointments)
+exports.cancelClientAppointment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log('📥 === CLIENT CANCEL APPOINTMENT REQUEST ===');
+        console.log('👤 Client:', req.user.email);
+        console.log('👤 Client role:', req.user.role);
+        console.log('🆔 Appointment ID:', id);
+        
+        // Validate appointment ID
+        if (!id || id === 'undefined' || id === 'null') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid appointment ID'
+            });
+        }
+        
+        // Find appointment
+        const appointment = await Appointment.findById(id);
+        if (!appointment) {
+            console.log('❌ Appointment not found for ID:', id);
+            return res.status(404).json({
+                success: false,
+                message: 'Appointment not found'
+            });
+        }
+        
+        console.log('📋 Found appointment:', {
+            id: appointment._id,
+            patientEmail: appointment.patient.email,
+            status: appointment.status,
+            date: appointment.appointmentDate,
+            time: appointment.appointmentTime
+        });
+        
+        // Authorization check: client can only cancel their own appointments
+        if (appointment.patient.email.toLowerCase() !== req.user.email.toLowerCase()) {
+            console.log('❌ Authorization failed:', {
+                appointmentEmail: appointment.patient.email,
+                userEmail: req.user.email
+            });
+            return res.status(403).json({
+                success: false,
+                message: 'You can only cancel your own appointments'
+            });
+        }
+        
+        // Check if appointment can be cancelled (not already cancelled)
+        if (appointment.status === 'cancelled') {
+            return res.status(400).json({
+                success: false,
+                message: 'Appointment is already cancelled'
+            });
+        }
+        
+        // Check if appointment can be cancelled (not completed)
+        if (appointment.status === 'completed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot cancel a completed appointment'
+            });
+        }
+        
+        // Check if appointment time has already passed TODAY
+        const appointmentDateTime = new Date(appointment.appointmentDate);
+        const appointmentTime = appointment.appointmentTime; // "HH:MM" format
+        
+        // Parse appointment time (HH:MM)
+        const [appointmentHour, appointmentMinute] = appointmentTime.split(':').map(Number);
+        appointmentDateTime.setHours(appointmentHour, appointmentMinute, 0, 0);
+        
+        const now = new Date();
+        
+        console.log('⏰ Time comparison:', {
+            appointmentDateTime: appointmentDateTime.toISOString(),
+            now: now.toISOString(),
+            isPast: appointmentDateTime < now
+        });
+        
+        // If appointment time has already passed today
+        if (appointmentDateTime < now) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot cancel past appointments',
+                isTimePassed: true
+            });
+        }
+        
+        console.log('🔄 Starting cancellation process...');
+        
+        // If cancelling, free up the doctor's slot
+        if (appointment.status !== 'cancelled') {
+            const doctor = await Doctor.findById(appointment.doctorId);
+            if (doctor) {
+                console.log('🔍 Found doctor:', doctor.name);
+                const slotIndex = doctor.timeSlots.findIndex(slot => 
+                    slot._id.toString() === appointment.slotId
+                );
+                
+                console.log('🔍 Slot index:', slotIndex);
+                
+                if (slotIndex !== -1) {
+                    doctor.timeSlots[slotIndex].status = 'available';
+                    doctor.timeSlots[slotIndex].patientInfo = null;
+                    await doctor.save();
+                    console.log('✅ Doctor slot freed up');
+                } else {
+                    console.log('⚠️ Slot not found in doctor timeSlots');
+                }
+            } else {
+                console.log('⚠️ Doctor not found for ID:', appointment.doctorId);
+            }
+        }
+        
+        // Update appointment status to cancelled
+        appointment.status = 'cancelled';
+        appointment.updatedAt = new Date();
+        await appointment.save();
+        
+        console.log('✅ Appointment cancelled by client successfully');
+        
+        res.json({
+            success: true,
+            message: 'Appointment cancelled successfully',
+            data: appointment
+        });
+    } catch (error) {
+        console.error('❌ Error cancelling appointment:', error);
+        console.error('❌ Error name:', error.name);
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        
+        // Check for Mongoose CastError (invalid ID)
+        if (error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid appointment ID format'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to cancel appointment'
+        });
+    }
+};
+
+// Reschedule appointment (for clients)
+exports.rescheduleAppointment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { 
+            newSlotId, 
+            newAppointmentDate, 
+            newAppointmentTime 
+        } = req.body;
+        
+        console.log('🔄 === CLIENT RESCHEDULE REQUEST ===');
+        console.log('👤 Client:', req.user.email);
+        console.log('📦 Request body:', req.body);
+        
+        // Validate required fields
+        if (!newSlotId || !newAppointmentDate || !newAppointmentTime) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: newSlotId, newAppointmentDate, newAppointmentTime'
+            });
+        }
+        
+        // Find the appointment
+        const appointment = await Appointment.findById(id);
+        if (!appointment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Appointment not found'
+            });
+        }
+        
+        // Authorization check: client can only reschedule their own appointments
+        if (appointment.patient.email.toLowerCase() !== req.user.email.toLowerCase()) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only reschedule your own appointments'
+            });
+        }
+        
+        // Check if appointment can be rescheduled
+        if (appointment.status === 'cancelled') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot reschedule a cancelled appointment'
+            });
+        }
+        
+        if (appointment.status === 'completed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot reschedule a completed appointment'
+            });
+        }
+        
+        // Check if appointment time has already passed
+        const appointmentDateTime = new Date(appointment.appointmentDate);
+        const [appointmentHour, appointmentMinute] = appointment.appointmentTime.split(':').map(Number);
+        appointmentDateTime.setHours(appointmentHour, appointmentMinute, 0, 0);
+        
+        const now = new Date();
+        
+        if (appointmentDateTime < now) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot reschedule past appointments',
+                isTimePassed: true
+            });
+        }
+        
+        // Get doctor ID
+        const doctorId = appointment.doctorId._id || appointment.doctorId;
+        
+        console.log('📋 Current appointment:', {
+            oldDate: appointment.appointmentDate,
+            oldTime: appointment.appointmentTime,
+            oldSlotId: appointment.slotId,
+            oldSerial: appointment.slotSerialNumber
+        });
+        
+        // Start transaction
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        
+        try {
+            // 1. Find the doctor and check new slot availability
+            const doctor = await Doctor.findById(doctorId);
+            if (!doctor) {
+                throw new Error('Doctor not found');
+            }
+            
+            // Find the new slot
+            const newSlotIndex = doctor.timeSlots.findIndex(slot => 
+                slot._id.toString() === newSlotId
+            );
+            
+            if (newSlotIndex === -1) {
+                throw new Error('New time slot not found');
+            }
+            
+            // Check if new slot is available
+            if (doctor.timeSlots[newSlotIndex].status !== 'available') {
+                throw new Error('Selected time slot is no longer available');
+            }
+            
+            // Parse new appointment date
+            const parsedNewDate = new Date(newAppointmentDate);
+            if (isNaN(parsedNewDate.getTime())) {
+                throw new Error('Invalid new appointment date');
+            }
+            
+            // Get the new slot's serial number
+            const newSlotSerialNumber = doctor.timeSlots[newSlotIndex].serialNumber || 0;
+            
+            // 2. Free up the old slot (if it exists and is not already freed)
+            if (appointment.slotId) {
+                const oldSlotIndex = doctor.timeSlots.findIndex(slot => 
+                    slot._id.toString() === appointment.slotId
+                );
+                
+                if (oldSlotIndex !== -1) {
+                    console.log(`🔓 Freeing old slot: ${appointment.slotId}`);
+                    doctor.timeSlots[oldSlotIndex].status = 'available';
+                    doctor.timeSlots[oldSlotIndex].patientInfo = null;
+                }
+            }
+            
+            // 3. Book the new slot
+            console.log(`🔒 Booking new slot: ${newSlotId}`);
+            doctor.timeSlots[newSlotIndex].status = 'booked';
+            doctor.timeSlots[newSlotIndex].patientInfo = {
+                name: appointment.patient.fullName,
+                phone: appointment.patient.phone,
+                email: appointment.patient.email,
+                appointmentId: appointment._id,
+                serialNumber: newSlotSerialNumber
+            };
+            
+            // Save doctor with updated slots
+            await doctor.save({ session });
+            
+            // 4. Update the appointment with new details
+            const updateData = {
+                appointmentDate: parsedNewDate,
+                appointmentTime: newAppointmentTime,
+                endTime: doctor.timeSlots[newSlotIndex].endTime,
+                slotId: newSlotId,
+                slotSerialNumber: newSlotSerialNumber,
+                status: 'pending', // Set back to pending for admin approval
+                updatedAt: new Date()
+            };
+            
+            // Update appointment fields
+            Object.keys(updateData).forEach(key => {
+                appointment[key] = updateData[key];
+            });
+            
+            await appointment.save({ session });
+            
+            // Commit transaction
+            await session.commitTransaction();
+            session.endSession();
+            
+            console.log('✅ Appointment rescheduled successfully');
+            
+            res.json({
+                success: true,
+                message: 'Appointment rescheduled successfully. It is now pending approval.',
+                data: {
+                    appointment: appointment,
+                    newSlotDetails: {
+                        date: parsedNewDate,
+                        time: newAppointmentTime,
+                        serialNumber: newSlotSerialNumber,
+                        doctorName: doctor.name
+                    }
+                }
+            });
+            
+        } catch (transactionError) {
+            // Rollback transaction
+            await session.abortTransaction();
+            session.endSession();
+            
+            console.error('❌ Transaction error:', transactionError);
+            
+            // Provide specific error messages
+            if (transactionError.message.includes('no longer available')) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'The selected time slot is no longer available. Please choose another slot.'
+                });
+            }
+            
+            throw transactionError;
+        }
+        
+    } catch (error) {
+        console.error('❌ Error rescheduling appointment:', error);
+        
+        if (error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid appointment ID format'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to reschedule appointment'
+        });
+    }
+};
