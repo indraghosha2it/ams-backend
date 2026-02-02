@@ -723,6 +723,43 @@ exports.updateAppointmentStatus = async (req, res) => {
     }
 };
 
+// Update appointment (for rescheduling)
+// Update appointment
+exports.updateAppointment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+        
+        const appointment = await Appointment.findById(id);
+        if (!appointment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Appointment not found'
+            });
+        }
+        
+        // Update fields
+        Object.keys(updates).forEach(key => {
+            appointment[key] = updates[key];
+        });
+        
+        appointment.updatedAt = new Date();
+        await appointment.save();
+        
+        res.json({
+            success: true,
+            message: 'Appointment updated successfully',
+            data: appointment
+        });
+    } catch (error) {
+        console.error('Error updating appointment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update appointment'
+        });
+    }
+};
+
 // Delete appointment
 exports.deleteAppointment = async (req, res) => {
     try {

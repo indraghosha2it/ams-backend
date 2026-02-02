@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const doctorController = require('../controllers/doctorController');
+const { authMiddleware, requireRole } = require('../middleware/auth');
 
 // POST /doctors - Create doctor
 router.post('/', doctorController.createDoctor);
@@ -28,6 +29,12 @@ router.put('/:id/schedule', doctorController.updateSchedule);
 
 // PUT /doctors/:id - Update doctor
 router.put('/:id', doctorController.updateDoctor);
+
+// PUT /doctors/:doctorId/slots/:slotId/status - Update slot status
+// router.put('/:doctorId/slots/:slotId/status', authMiddleware, requireRole('admin', 'staff'), doctorController.updateSlotStatus);
+router.put('/:id/slots/:slotId/status', authMiddleware, requireRole('admin', 'staff'), doctorController.updateSlotStatus);
+
+
 
 // GET /doctors/:id - Get single doctor
 router.get('/:id', doctorController.getDoctor);

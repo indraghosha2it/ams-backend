@@ -32,6 +32,9 @@ router.get('/patient/:email', appointmentController.getAppointmentsByPatientEmai
 // PUT /appointments/:id/status - Update appointment status - admin/staff only
 router.put('/:id/status', requireRole('admin', 'staff'), appointmentController.updateAppointmentStatus);
 
+// PUT /appointments/:id - Update appointment (for rescheduling)
+router.put('/:id', requireRole('admin', 'staff'), appointmentController.updateAppointment);
+
 // DELETE /appointments/:id - Delete appointment - admin only
 router.delete('/:id', requireRole('admin'), appointmentController.deleteAppointment);
 
