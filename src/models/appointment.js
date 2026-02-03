@@ -85,7 +85,7 @@ const appointmentSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-      slotSerialNumber: { 
+    slotSerialNumber: { 
         type: Number,
         default: 0
     },
@@ -93,6 +93,18 @@ const appointmentSchema = new mongoose.Schema({
         type: String,
         enum: ['processing', 'pending', 'confirmed', 'completed', 'cancelled', 'no-show'],
         default: 'pending'
+    },
+        emailSent: {
+        type: Boolean,
+        default: false
+    },
+    emailMessageId: {
+        type: String,
+        default: null
+    },
+    lastEmailSent: {
+        type: Date,
+        default: null
     },
     createdAt: {
         type: Date,

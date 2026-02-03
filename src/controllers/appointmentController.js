@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 const Appointment = require('../models/appointment');
 const Doctor = require('../models/doctor');
+const emailService = require('../utils/emailService');
 const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 
-// Create new appointment
-// Create new appointment
+// Create new appointment9without mail)
+
 // exports.createAppointment = async (req, res) => {
 //     try {
 //         console.log('📥 === CREATE APPOINTMENT REQUEST ===');
@@ -121,6 +122,15 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 //         console.log('✅ Slot found at index:', slotIndex);
 //         console.log('📋 Slot details:', doctor.timeSlots[slotIndex]);
         
+//         // Get the serial number from the doctor's slot
+//         const slotSerialNumberFromDB = doctor.timeSlots[slotIndex].serialNumber || 0;
+//         console.log(`📝 Slot serial number from database: ${slotSerialNumberFromDB}`);
+//         console.log(`📝 Slot serial number from request: ${slotSerialNumber}`);
+        
+//         // Use the serial number from the database (this is the correct one)
+//         const finalSerialNumber = slotSerialNumberFromDB || slotSerialNumber || 0;
+//         console.log(`📝 Using serial number: ${finalSerialNumber}`);
+        
 //         // Check if slot is available
 //         if (doctor.timeSlots[slotIndex].status !== 'available') {
 //             console.log('❌ Slot not available. Current status:', doctor.timeSlots[slotIndex].status);
@@ -184,7 +194,7 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 //             appointmentDate: parsedAppointmentDate,
 //             appointmentTime: startTime,
 //             endTime: endTime,
-//           slotSerialNumber: slotSerialNumber || 0,
+//             slotSerialNumber: finalSerialNumber, // Use the correct serial number from doctor's slot
 //             status
 //         };
         
@@ -203,6 +213,7 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 //             console.log('✅ Appointment saved to database');
 //             console.log('- Appointment ID:', appointment._id);
 //             console.log('- Patient:', patient.fullName);
+//             console.log('- Slot Serial Number saved:', finalSerialNumber);
             
 //             // 2. Update doctor's slot status to 'booked'
 //             doctor.timeSlots[slotIndex].status = 'booked';
@@ -211,7 +222,7 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 //                 phone: patient.phone,
 //                 email: patient.email,
 //                 appointmentId: appointment._id,
-//                   serialNumber: slotSerialNumber || 0
+//                 serialNumber: finalSerialNumber // Save the correct serial number
 //             };
             
 //             await doctor.save({ session });
@@ -222,6 +233,7 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
             
 //             console.log('✅ Transaction committed successfully');
 //             console.log('✅ Doctor slot updated to "booked"');
+//             console.log(`✅ Slot serial number ${finalSerialNumber} saved to both appointment and doctor slot`);
             
 //             // Populate appointment with doctor details for response
 //             const populatedAppointment = await Appointment.findById(appointment._id)
@@ -229,7 +241,7 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
             
 //             res.status(201).json({
 //                 success: true,
-//                 message: 'Appointment booked successfully',
+//                 message: `Appointment #${finalSerialNumber} booked successfully`,
 //                 data: populatedAppointment
 //             });
             
@@ -278,7 +290,9 @@ const { timeToMinutes, formatTime } = require('../utils/slotGenerator');
 //         });
 //     }
 // };
-// Create new appointment
+
+
+// Create appointment
 exports.createAppointment = async (req, res) => {
     try {
         console.log('📥 === CREATE APPOINTMENT REQUEST ===');
@@ -500,6 +514,41 @@ exports.createAppointment = async (req, res) => {
             
             await doctor.save({ session });
             
+            // 3. Send confirmation email (AFTER transaction is committed)
+            let emailResult = null;
+            try {
+                console.log('📧 Attempting to send confirmation email...');
+                emailResult = await emailService.sendAppointmentConfirmation({
+                    patient,
+                    doctor: {
+                        name: doctor.name,
+                        speciality: doctor.speciality,
+                        location: doctor.location,
+                        perPatientTime: doctor.perPatientTime,
+                        designation: doctor.designation,
+                        email: doctor.email
+                    },
+                    appointmentDate: parsedAppointmentDate,
+                    appointmentTime: startTime,
+                    slotSerialNumber: finalSerialNumber,
+                    appointmentId: appointment._id
+                });
+
+                // Update appointment with email status
+                appointment.emailSent = emailResult.success;
+                appointment.emailMessageId = emailResult.messageId;
+                await appointment.save({ session });
+                
+                if (emailResult.success) {
+                    console.log('✅ Confirmation email sent successfully');
+                } else {
+                    console.log('⚠️ Email service returned error:', emailResult.error);
+                }
+            } catch (emailError) {
+                console.error('❌ Email sending failed:', emailError);
+                // Don't throw - appointment is still valid even if email fails
+            }
+            
             // Commit the transaction
             await session.commitTransaction();
             session.endSession();
@@ -512,11 +561,21 @@ exports.createAppointment = async (req, res) => {
             const populatedAppointment = await Appointment.findById(appointment._id)
                 .populate('doctorId', 'name email speciality designation location');
             
-            res.status(201).json({
+            // Build response
+            const responseData = {
                 success: true,
                 message: `Appointment #${finalSerialNumber} booked successfully`,
-                data: populatedAppointment
-            });
+                data: {
+                    appointment: populatedAppointment,
+                    emailStatus: emailResult ? {
+                        sent: emailResult.success,
+                        messageId: emailResult.messageId,
+                        error: emailResult.error
+                    } : { sent: false, error: 'Email service not called' }
+                }
+            };
+            
+            res.status(201).json(responseData);
             
         } catch (transactionError) {
             // Rollback the transaction
@@ -563,6 +622,7 @@ exports.createAppointment = async (req, res) => {
         });
     }
 };
+
 // Get all appointments
 exports.getAllAppointments = async (req, res) => {
     try {
@@ -830,6 +890,284 @@ exports.getTodaysAppointments = async (req, res) => {
 };
 
 
+// Create new appointment for clients (with processing status , without mail)
+// exports.createClientAppointment = async (req, res) => {
+//     try {
+//         console.log('📥 === CREATE CLIENT APPOINTMENT REQUEST ===');
+//         console.log('📋 Headers:', req.headers);
+//         console.log('📦 Body received:', JSON.stringify(req.body, null, 2));
+        
+//         const {
+//             doctorId,
+//             slotId,
+//             patient,
+//             appointmentDate,
+//             appointmentTime,
+//              slotSerialNumber,
+//         } = req.body;
+        
+//         // Set status to 'processing' for client bookings
+//         const status = 'pending';
+        
+//         // Validate required fields
+//         if (!doctorId || !slotId || !patient || !appointmentDate || !appointmentTime) {
+//             console.log('❌ Missing required fields');
+//             console.log('- doctorId:', doctorId);
+//             console.log('- slotId:', slotId);
+//             console.log('- patient:', patient);
+//             console.log('- appointmentDate:', appointmentDate);
+//             console.log('- appointmentTime:', appointmentTime);
+            
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Missing required fields: doctorId, slotId, patient, appointmentDate, appointmentTime'
+//             });
+//         }
+        
+//         // Validate patient data
+//         if (!patient.fullName || !patient.email || !patient.phone || !patient.dateOfBirth || !patient.gender || !patient.reason) {
+//             console.log('❌ Missing required patient information');
+//             console.log('- fullName:', patient.fullName);
+//             console.log('- email:', patient.email);
+//             console.log('- phone:', patient.phone);
+//             console.log('- dateOfBirth:', patient.dateOfBirth);
+//             console.log('- gender:', patient.gender);
+//             console.log('- reason:', patient.reason);
+            
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Missing required patient information'
+//             });
+//         }
+        
+//         console.log('🔍 Looking for doctor:', doctorId);
+        
+//         // Find doctor
+//         const doctor = await Doctor.findById(doctorId);
+//         if (!doctor) {
+//             console.log('❌ Doctor not found for ID:', doctorId);
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Doctor not found'
+//             });
+//         }
+        
+//         console.log('✅ Doctor found:', doctor.name);
+//         console.log('📊 Doctor has', doctor.timeSlots?.length || 0, 'slots');
+        
+//         // Find the specific slot in doctor's timeSlots
+//         let slotIndex = doctor.timeSlots.findIndex(slot => 
+//             slot._id && slot._id.toString() === slotId
+//         );
+        
+//         console.log('🔍 Looking for slot with ID:', slotId);
+//         console.log('📋 Slot search result (by _id):', slotIndex);
+        
+//         if (slotIndex === -1) {
+//             // If slot not found by _id, try to find by date and time
+//             console.log('⚠️ Slot not found by _id, trying by date and time...');
+//             const formattedDate = new Date(appointmentDate).toISOString().split('T')[0];
+            
+//             doctor.timeSlots.forEach((slot, index) => {
+//                 try {
+//                     let slotDateStr;
+//                     if (slot.date) {
+//                         if (typeof slot.date === 'object' && slot.date.$date) {
+//                             // MongoDB format
+//                             const dateObj = new Date(slot.date.$date);
+//                             slotDateStr = dateObj.toISOString().split('T')[0];
+//                         } else {
+//                             // Regular date
+//                             const dateObj = new Date(slot.date);
+//                             slotDateStr = dateObj.toISOString().split('T')[0];
+//                         }
+                        
+//                         if (slotDateStr === formattedDate && slot.startTime === appointmentTime) {
+//                             console.log(`✅ Found slot at index ${index} by date/time match`);
+//                             slotIndex = index;
+//                         }
+//                     }
+//                 } catch (error) {
+//                     console.log(`⚠️ Error processing slot ${index}:`, error.message);
+//                 }
+//             });
+//         }
+        
+//         if (slotIndex === -1) {
+//             console.log('❌ Slot not found in doctor timeSlots');
+//             console.log('📅 Looking for date:', appointmentDate);
+//             console.log('⏰ Looking for time:', appointmentTime);
+//             console.log('📋 Available slots sample:', doctor.timeSlots?.slice(0, 3));
+            
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Time slot not found or no longer available'
+//             });
+//         }
+        
+//         console.log('✅ Slot found at index:', slotIndex);
+//         console.log('📋 Slot details:', doctor.timeSlots[slotIndex]);
+        
+//         // Check if slot is available (allow 'processing' status if re-booking)
+//         const slotStatus = doctor.timeSlots[slotIndex].status;
+//         if (slotStatus !== 'available' && slotStatus !== 'processing') {
+//             console.log('❌ Slot not available. Current status:', slotStatus);
+//             return res.status(409).json({
+//                 success: false,
+//                 message: 'This time slot is no longer available',
+//                 currentStatus: slotStatus
+//             });
+//         }
+        
+//         // Calculate end time based on doctor's perPatientTime
+//         const startTime = doctor.timeSlots[slotIndex].startTime;
+//         const endTime = doctor.timeSlots[slotIndex].endTime;
+        
+//         // Parse appointment date properly
+//         let parsedAppointmentDate;
+//         try {
+//             parsedAppointmentDate = new Date(appointmentDate);
+//             if (isNaN(parsedAppointmentDate.getTime())) {
+//                 throw new Error('Invalid date');
+//             }
+//         } catch (error) {
+//             console.log('❌ Invalid appointment date:', appointmentDate);
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid appointment date format'
+//             });
+//         }
+        
+//         // Parse patient date of birth
+//         let parsedPatientDOB;
+//         try {
+//             parsedPatientDOB = new Date(patient.dateOfBirth);
+//             if (isNaN(parsedPatientDOB.getTime())) {
+//                 throw new Error('Invalid date');
+//             }
+//         } catch (error) {
+//             console.log('❌ Invalid patient date of birth:', patient.dateOfBirth);
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid patient date of birth format'
+//             });
+//         }
+        
+//         // Create appointment with doctor information
+//         const appointmentData = {
+//             doctorId,
+//             slotId,
+//             patient: {
+//                 ...patient,
+//                 dateOfBirth: parsedPatientDOB
+//             },
+//             doctorInfo: {
+//                 name: doctor.name,
+//                 speciality: doctor.speciality,
+//                 designation: doctor.designation,
+//                 location: doctor.location || '',
+//                 email: doctor.email,
+//                 perPatientTime: doctor.perPatientTime || 15
+//             },
+//             appointmentDate: parsedAppointmentDate,
+//             appointmentTime: startTime,
+//             endTime: endTime,
+//             slotSerialNumber: slotSerialNumber || 0,
+//             status: status // This will be 'processing' for client bookings
+//         };
+        
+//         console.log('💾 Creating appointment with data:', JSON.stringify(appointmentData, null, 2));
+        
+//         // Start a transaction to ensure both operations succeed or fail together
+//         console.log('🔄 Starting database transaction...');
+//         const session = await mongoose.startSession();
+//         session.startTransaction();
+        
+//         try {
+//             // 1. Create the appointment
+//             const appointment = new Appointment(appointmentData);
+//             await appointment.save({ session });
+            
+//             console.log('✅ Appointment saved to database');
+//             console.log('- Appointment ID:', appointment._id);
+//             console.log('- Patient:', patient.fullName);
+//             console.log('- Status:', status);
+            
+//             // 2. Update doctor's slot status to 'processing' (not 'booked')
+//             doctor.timeSlots[slotIndex].status = 'booked';
+//             doctor.timeSlots[slotIndex].patientInfo = {
+//                 name: patient.fullName,
+//                 phone: patient.phone,
+//                 email: patient.email,
+//                 appointmentId: appointment._id,
+//                  serialNumber: slotSerialNumber || 0 
+//             };
+            
+//             await doctor.save({ session });
+            
+//             // Commit the transaction
+//             await session.commitTransaction();
+//             session.endSession();
+            
+//             console.log('✅ Transaction committed successfully');
+//             console.log('✅ Doctor slot updated to "processing"');
+            
+//             // Populate appointment with doctor details for response
+//             const populatedAppointment = await Appointment.findById(appointment._id)
+//                 .populate('doctorId', 'name email speciality designation location');
+            
+//             res.status(201).json({
+//                 success: true,
+//                 message: 'Appointment booked successfully! It is now pending approval.',
+//                 data: populatedAppointment
+//             });
+            
+//         } catch (transactionError) {
+//             // Rollback the transaction
+//             console.log('❌ Transaction failed, rolling back...');
+//             await session.abortTransaction();
+//             session.endSession();
+            
+//             console.error('❌ Transaction error:', transactionError);
+//             console.error('❌ Error name:', transactionError.name);
+//             console.error('❌ Error message:', transactionError.message);
+//             console.error('❌ Error stack:', transactionError.stack);
+            
+//             throw transactionError;
+//         }
+        
+//     } catch (error) {
+//         console.error('❌ Error creating client appointment:', error);
+//         console.error('❌ Error name:', error.name);
+//         console.error('❌ Error message:', error.message);
+//         console.error('❌ Error stack:', error.stack);
+        
+//         if (error.name === 'ValidationError') {
+//             const messages = Object.values(error.errors).map(val => val.message);
+//             console.error('❌ Validation errors:', messages);
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Validation error: ' + messages.join(', ')
+//             });
+//         }
+        
+//         // Check for MongoDB duplicate key error
+//         if (error.code === 11000) {
+//             console.error('❌ Duplicate key error:', error.keyValue);
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Duplicate appointment detected'
+//             });
+//         }
+        
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to book appointment',
+//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//         });
+//     }
+// };
+
 // Create new appointment for clients (with processing status)
 exports.createClientAppointment = async (req, res) => {
     try {
@@ -843,10 +1181,10 @@ exports.createClientAppointment = async (req, res) => {
             patient,
             appointmentDate,
             appointmentTime,
-             slotSerialNumber,
+            slotSerialNumber,
         } = req.body;
         
-        // Set status to 'processing' for client bookings
+        // Set status to 'pending' for client bookings
         const status = 'pending';
         
         // Validate required fields
@@ -1013,7 +1351,7 @@ exports.createClientAppointment = async (req, res) => {
             appointmentTime: startTime,
             endTime: endTime,
             slotSerialNumber: slotSerialNumber || 0,
-            status: status // This will be 'processing' for client bookings
+            status: status // This will be 'pending' for client bookings
         };
         
         console.log('💾 Creating appointment with data:', JSON.stringify(appointmentData, null, 2));
@@ -1032,35 +1370,84 @@ exports.createClientAppointment = async (req, res) => {
             console.log('- Appointment ID:', appointment._id);
             console.log('- Patient:', patient.fullName);
             console.log('- Status:', status);
+            console.log('- Serial Number:', slotSerialNumber);
             
-            // 2. Update doctor's slot status to 'processing' (not 'booked')
+            // 2. Update doctor's slot status to 'booked'
             doctor.timeSlots[slotIndex].status = 'booked';
             doctor.timeSlots[slotIndex].patientInfo = {
                 name: patient.fullName,
                 phone: patient.phone,
                 email: patient.email,
                 appointmentId: appointment._id,
-                 serialNumber: slotSerialNumber || 0 
+                serialNumber: slotSerialNumber || 0 
             };
             
             await doctor.save({ session });
+            
+            // 3. Send confirmation email for pending appointment
+            let emailResult = null;
+            try {
+                console.log('📧 Attempting to send pending appointment email...');
+                emailResult = await emailService.sendAppointmentConfirmation({
+                    patient,
+                    doctor: {
+                        name: doctor.name,
+                        speciality: doctor.speciality,
+                        location: doctor.location,
+                        perPatientTime: doctor.perPatientTime,
+                        designation: doctor.designation,
+                        email: doctor.email
+                    },
+                    appointmentDate: parsedAppointmentDate,
+                    appointmentTime: startTime,
+                    slotSerialNumber: slotSerialNumber || 0,
+                    appointmentId: appointment._id,
+                    status: 'pending' // Add status to indicate it's pending
+                });
+
+                // Update appointment with email status
+                appointment.emailSent = emailResult.success;
+                appointment.emailMessageId = emailResult.messageId;
+                await appointment.save({ session });
+                
+                if (emailResult.success) {
+                    console.log('✅ Pending appointment email sent successfully');
+                } else {
+                    console.log('⚠️ Email service returned error:', emailResult.error);
+                }
+            } catch (emailError) {
+                console.error('❌ Email sending failed:', emailError);
+                // Don't throw - appointment is still valid even if email fails
+            }
             
             // Commit the transaction
             await session.commitTransaction();
             session.endSession();
             
             console.log('✅ Transaction committed successfully');
-            console.log('✅ Doctor slot updated to "processing"');
+            console.log('✅ Doctor slot updated to "booked"');
+            console.log('✅ Email sent to patient and clinic');
             
             // Populate appointment with doctor details for response
             const populatedAppointment = await Appointment.findById(appointment._id)
                 .populate('doctorId', 'name email speciality designation location');
             
-            res.status(201).json({
+            // Build response with email status
+            const responseData = {
                 success: true,
                 message: 'Appointment booked successfully! It is now pending approval.',
-                data: populatedAppointment
-            });
+                data: {
+                    appointment: populatedAppointment,
+                    emailStatus: emailResult ? {
+                        sent: emailResult.success,
+                        messageId: emailResult.messageId,
+                        error: emailResult.error,
+                        recipients: emailResult.recipients || {}
+                    } : { sent: false, error: 'Email service not called' }
+                }
+            };
+            
+            res.status(201).json(responseData);
             
         } catch (transactionError) {
             // Rollback the transaction
