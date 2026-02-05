@@ -17,6 +17,9 @@ router.use(authMiddleware);
 // POST /appointments - Create new appointment (admin/staff only)
 router.post('/', requireRole('admin', 'staff'), appointmentController.createAppointment);
 
+
+// Add this route in appointmentRoutes.js
+router.post('/:id/send-reschedule-email', requireRole('admin', 'staff'), appointmentController.sendRescheduleEmail)
 // GET /appointments - Get all appointments (with optional filters) - admin/staff only
 router.get('/', requireRole('admin', 'staff'), appointmentController.getAllAppointments);
 

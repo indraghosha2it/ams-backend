@@ -990,10 +990,50 @@ exports.updateAppointmentStatus = async (req, res) => {
 
 // Update appointment (for rescheduling)
 // Update appointment
+// exports.updateAppointment = async (req, res) => {
+//     try {
+//         const { id } = req.params;
+//         const updates = req.body;
+        
+//         const appointment = await Appointment.findById(id);
+//         if (!appointment) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Appointment not found'
+//             });
+//         }
+        
+//         // Update fields
+//         Object.keys(updates).forEach(key => {
+//             appointment[key] = updates[key];
+//         });
+        
+//         appointment.updatedAt = new Date();
+//         await appointment.save();
+        
+//         res.json({
+//             success: true,
+//             message: 'Appointment updated successfully',
+//             data: appointment
+//         });
+//     } catch (error) {
+//         console.error('Error updating appointment:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Failed to update appointment'
+//         });
+//     }
+// };
+// Update appointment (for rescheduling) - UPDATED WITH EMAIL FOR STAFF
 exports.updateAppointment = async (req, res) => {
     try {
         const { id } = req.params;
         const updates = req.body;
+        
+        console.log('📋 === UPDATE APPOINTMENT REQUEST ===');
+        console.log('Appointment ID:', id);
+        console.log('Updates:', updates);
+        console.log('User Role:', req.user.role);
         
         const appointment = await Appointment.findById(id);
         if (!appointment) {
@@ -1003,24 +1043,165 @@ exports.updateAppointment = async (req, res) => {
             });
         }
         
+        // Store old appointment details for email (if rescheduling)
+        const oldAppointmentDetails = {
+            date: appointment.appointmentDate,
+            time: appointment.appointmentTime,
+            serialNumber: appointment.slotSerialNumber,
+            status: appointment.status
+        };
+        
+        // Check if this is a reschedule (date/time changed)
+        const isReschedule = (updates.appointmentDate && 
+                             updates.appointmentDate !== appointment.appointmentDate.toISOString().split('T')[0]) ||
+                            (updates.appointmentTime && 
+                             updates.appointmentTime !== appointment.appointmentTime);
+        
+        // Check if this is a status change
+        const isStatusChange = updates.status && updates.status !== appointment.status;
+        
+        console.log('📊 Change Analysis:', {
+            isReschedule: isReschedule,
+            isStatusChange: isStatusChange,
+            oldStatus: appointment.status,
+            newStatus: updates.status
+        });
+        
         // Update fields
         Object.keys(updates).forEach(key => {
             appointment[key] = updates[key];
         });
         
         appointment.updatedAt = new Date();
-        await appointment.save();
         
-        res.json({
-            success: true,
-            message: 'Appointment updated successfully',
-            data: appointment
-        });
+        // Start transaction
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        
+        try {
+            await appointment.save({ session });
+            console.log('✅ Appointment updated successfully');
+            
+            // Handle emails based on the type of update
+            let emailResult = null;
+            
+            // 1. If staff is rescheduling (changing date/time)
+            if (isReschedule && req.user.role === 'staff') {
+                console.log('📧 Preparing staff reschedule email...');
+                
+                try {
+                    emailResult = await emailService.sendAppointmentRescheduled({
+                        patient: appointment.patient,
+                        doctor: appointment.doctorInfo,
+                        oldAppointmentDate: oldAppointmentDetails.date,
+                        oldAppointmentTime: oldAppointmentDetails.time,
+                        newAppointmentDate: updates.appointmentDate || appointment.appointmentDate,
+                        newAppointmentTime: updates.appointmentTime || appointment.appointmentTime,
+                        slotSerialNumber: updates.slotSerialNumber || appointment.slotSerialNumber,
+                        appointmentId: appointment._id,
+                        remarks: 'Your appointment has been rescheduled by the clinic staff. It is now confirmed.'
+                    });
+
+                    if (emailResult.success) {
+                        console.log('✅ Staff reschedule email sent successfully');
+                        
+                        // Update appointment with email status
+                        appointment.emailSent = emailResult.success;
+                        appointment.lastEmailType = 'staff_reschedule';
+                        appointment.lastEmailSentAt = new Date();
+                        appointment.emailMessageId = emailResult.messageId;
+                        await appointment.save({ session });
+                    } else {
+                        console.log('⚠️ Email service returned error:', emailResult.error);
+                    }
+                } catch (emailError) {
+                    console.error('❌ Email sending failed:', emailError);
+                    // Don't fail the transaction if email fails
+                }
+            }
+            
+            // 2. If status changed to 'confirmed' (and not from reschedule)
+            else if (isStatusChange && updates.status === 'confirmed') {
+                console.log('📧 Preparing confirmation email...');
+                
+                try {
+                    emailResult = await emailService.sendAppointmentConfirmation({
+                        patient: appointment.patient,
+                        doctor: appointment.doctorInfo,
+                        appointmentDate: appointment.appointmentDate,
+                        appointmentTime: appointment.appointmentTime,
+                        slotSerialNumber: appointment.slotSerialNumber,
+                        appointmentId: appointment._id,
+                        status: 'confirmed',
+                        remarks: 'Your appointment has been confirmed by the clinic staff.'
+                    });
+
+                    if (emailResult.success) {
+                        console.log('✅ Confirmation email sent successfully');
+                        
+                        // Update appointment with email status
+                        appointment.emailSent = emailResult.success;
+                        appointment.lastEmailType = 'confirmation';
+                        appointment.lastEmailSentAt = new Date();
+                        appointment.emailMessageId = emailResult.messageId;
+                        await appointment.save({ session });
+                    } else {
+                        console.log('⚠️ Email service returned error:', emailResult.error);
+                    }
+                } catch (emailError) {
+                    console.error('❌ Email sending failed:', emailError);
+                }
+            }
+            
+            // Commit transaction
+            await session.commitTransaction();
+            session.endSession();
+            
+            console.log('✅ Transaction committed successfully');
+            
+            // Prepare response data
+            const responseData = {
+                success: true,
+                message: 'Appointment updated successfully',
+                data: appointment
+            };
+            
+            // Add email status to response if email was sent
+            if (emailResult) {
+                responseData.emailStatus = {
+                    sent: emailResult.success,
+                    type: isReschedule ? 'reschedule' : 'confirmation',
+                    messageId: emailResult.messageId,
+                    error: emailResult.error
+                };
+            }
+            
+            res.json(responseData);
+            
+        } catch (transactionError) {
+            // Rollback transaction
+            await session.abortTransaction();
+            session.endSession();
+            
+            console.error('❌ Transaction error:', transactionError);
+            throw transactionError;
+        }
+        
     } catch (error) {
-        console.error('Error updating appointment:', error);
+        console.error('❌ Error updating appointment:', error);
+        
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({
+                success: false,
+                message: 'Validation error: ' + messages.join(', ')
+            });
+        }
+        
         res.status(500).json({
             success: false,
-            message: 'Failed to update appointment'
+            message: 'Failed to update appointment',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
@@ -2089,7 +2270,219 @@ exports.cancelClientAppointment = async (req, res) => {
     }
 };
 
-// Reschedule appointment (for clients)
+// Reschedule appointment (for clients) without mail 
+// exports.rescheduleAppointment = async (req, res) => {
+//     try {
+//         const { id } = req.params;
+//         const { 
+//             newSlotId, 
+//             newAppointmentDate, 
+//             newAppointmentTime 
+//         } = req.body;
+        
+//         console.log('🔄 === CLIENT RESCHEDULE REQUEST ===');
+//         console.log('👤 Client:', req.user.email);
+//         console.log('📦 Request body:', req.body);
+        
+//         // Validate required fields
+//         if (!newSlotId || !newAppointmentDate || !newAppointmentTime) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Missing required fields: newSlotId, newAppointmentDate, newAppointmentTime'
+//             });
+//         }
+        
+//         // Find the appointment
+//         const appointment = await Appointment.findById(id);
+//         if (!appointment) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Appointment not found'
+//             });
+//         }
+        
+//         // Authorization check: client can only reschedule their own appointments
+//         if (appointment.patient.email.toLowerCase() !== req.user.email.toLowerCase()) {
+//             return res.status(403).json({
+//                 success: false,
+//                 message: 'You can only reschedule your own appointments'
+//             });
+//         }
+        
+//         // Check if appointment can be rescheduled
+//         if (appointment.status === 'cancelled') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Cannot reschedule a cancelled appointment'
+//             });
+//         }
+        
+//         if (appointment.status === 'completed') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Cannot reschedule a completed appointment'
+//             });
+//         }
+        
+//         // Check if appointment time has already passed
+//         const appointmentDateTime = new Date(appointment.appointmentDate);
+//         const [appointmentHour, appointmentMinute] = appointment.appointmentTime.split(':').map(Number);
+//         appointmentDateTime.setHours(appointmentHour, appointmentMinute, 0, 0);
+        
+//         const now = new Date();
+        
+//         if (appointmentDateTime < now) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Cannot reschedule past appointments',
+//                 isTimePassed: true
+//             });
+//         }
+        
+//         // Get doctor ID
+//         const doctorId = appointment.doctorId._id || appointment.doctorId;
+        
+//         console.log('📋 Current appointment:', {
+//             oldDate: appointment.appointmentDate,
+//             oldTime: appointment.appointmentTime,
+//             oldSlotId: appointment.slotId,
+//             oldSerial: appointment.slotSerialNumber
+//         });
+        
+//         // Start transaction
+//         const session = await mongoose.startSession();
+//         session.startTransaction();
+        
+//         try {
+//             // 1. Find the doctor and check new slot availability
+//             const doctor = await Doctor.findById(doctorId);
+//             if (!doctor) {
+//                 throw new Error('Doctor not found');
+//             }
+            
+//             // Find the new slot
+//             const newSlotIndex = doctor.timeSlots.findIndex(slot => 
+//                 slot._id.toString() === newSlotId
+//             );
+            
+//             if (newSlotIndex === -1) {
+//                 throw new Error('New time slot not found');
+//             }
+            
+//             // Check if new slot is available
+//             if (doctor.timeSlots[newSlotIndex].status !== 'available') {
+//                 throw new Error('Selected time slot is no longer available');
+//             }
+            
+//             // Parse new appointment date
+//             const parsedNewDate = new Date(newAppointmentDate);
+//             if (isNaN(parsedNewDate.getTime())) {
+//                 throw new Error('Invalid new appointment date');
+//             }
+            
+//             // Get the new slot's serial number
+//             const newSlotSerialNumber = doctor.timeSlots[newSlotIndex].serialNumber || 0;
+            
+//             // 2. Free up the old slot (if it exists and is not already freed)
+//             if (appointment.slotId) {
+//                 const oldSlotIndex = doctor.timeSlots.findIndex(slot => 
+//                     slot._id.toString() === appointment.slotId
+//                 );
+                
+//                 if (oldSlotIndex !== -1) {
+//                     console.log(`🔓 Freeing old slot: ${appointment.slotId}`);
+//                     doctor.timeSlots[oldSlotIndex].status = 'available';
+//                     doctor.timeSlots[oldSlotIndex].patientInfo = null;
+//                 }
+//             }
+            
+//             // 3. Book the new slot
+//             console.log(`🔒 Booking new slot: ${newSlotId}`);
+//             doctor.timeSlots[newSlotIndex].status = 'booked';
+//             doctor.timeSlots[newSlotIndex].patientInfo = {
+//                 name: appointment.patient.fullName,
+//                 phone: appointment.patient.phone,
+//                 email: appointment.patient.email,
+//                 appointmentId: appointment._id,
+//                 serialNumber: newSlotSerialNumber
+//             };
+            
+//             // Save doctor with updated slots
+//             await doctor.save({ session });
+            
+//             // 4. Update the appointment with new details
+//             const updateData = {
+//                 appointmentDate: parsedNewDate,
+//                 appointmentTime: newAppointmentTime,
+//                 endTime: doctor.timeSlots[newSlotIndex].endTime,
+//                 slotId: newSlotId,
+//                 slotSerialNumber: newSlotSerialNumber,
+//                 status: 'pending', // Set back to pending for admin approval
+//                 updatedAt: new Date()
+//             };
+            
+//             // Update appointment fields
+//             Object.keys(updateData).forEach(key => {
+//                 appointment[key] = updateData[key];
+//             });
+            
+//             await appointment.save({ session });
+            
+//             // Commit transaction
+//             await session.commitTransaction();
+//             session.endSession();
+            
+//             console.log('✅ Appointment rescheduled successfully');
+            
+//             res.json({
+//                 success: true,
+//                 message: 'Appointment rescheduled successfully. It is now pending approval.',
+//                 data: {
+//                     appointment: appointment,
+//                     newSlotDetails: {
+//                         date: parsedNewDate,
+//                         time: newAppointmentTime,
+//                         serialNumber: newSlotSerialNumber,
+//                         doctorName: doctor.name
+//                     }
+//                 }
+//             });
+            
+//         } catch (transactionError) {
+//             // Rollback transaction
+//             await session.abortTransaction();
+//             session.endSession();
+            
+//             console.error('❌ Transaction error:', transactionError);
+            
+//             // Provide specific error messages
+//             if (transactionError.message.includes('no longer available')) {
+//                 return res.status(409).json({
+//                     success: false,
+//                     message: 'The selected time slot is no longer available. Please choose another slot.'
+//                 });
+//             }
+            
+//             throw transactionError;
+//         }
+        
+//     } catch (error) {
+//         console.error('❌ Error rescheduling appointment:', error);
+        
+//         if (error.name === 'CastError') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid appointment ID format'
+//             });
+//         }
+        
+//         res.status(500).json({
+//             success: false,
+//             message: error.message || 'Failed to reschedule appointment'
+//         });
+//     }
+// };
+// Reschedule appointment (for clients) - UPDATED WITH EMAIL
 exports.rescheduleAppointment = async (req, res) => {
     try {
         const { id } = req.params;
@@ -2167,6 +2560,13 @@ exports.rescheduleAppointment = async (req, res) => {
             oldSlotId: appointment.slotId,
             oldSerial: appointment.slotSerialNumber
         });
+        
+        // Store old appointment details for email
+        const oldAppointmentDetails = {
+            date: appointment.appointmentDate,
+            time: appointment.appointmentTime,
+            serialNumber: appointment.slotSerialNumber
+        };
         
         // Start transaction
         const session = await mongoose.startSession();
@@ -2247,13 +2647,48 @@ exports.rescheduleAppointment = async (req, res) => {
             
             await appointment.save({ session });
             
+            // 5. Send reschedule notification email (AFTER successful update)
+            let emailResult = null;
+            try {
+                console.log('📧 Preparing to send reschedule notification email...');
+                
+                emailResult = await emailService.sendAppointmentRescheduled({
+                    patient: appointment.patient,
+                    doctor: appointment.doctorInfo,
+                    oldAppointmentDate: oldAppointmentDetails.date,
+                    oldAppointmentTime: oldAppointmentDetails.time,
+                    newAppointmentDate: parsedNewDate,
+                    newAppointmentTime: newAppointmentTime,
+                    slotSerialNumber: newSlotSerialNumber,
+                    appointmentId: appointment._id,
+                    remarks: 'Your appointment has been rescheduled. It is now pending approval by the clinic.'
+                });
+
+                // Update appointment with email status
+                if (emailResult.success) {
+                    appointment.emailSent = emailResult.success;
+                    appointment.lastEmailType = 'reschedule';
+                    appointment.lastEmailSentAt = new Date();
+                    appointment.emailMessageId = emailResult.messageId;
+                    await appointment.save({ session });
+                    
+                    console.log('✅ Reschedule notification email sent successfully');
+                } else {
+                    console.log('⚠️ Email service returned error:', emailResult.error);
+                }
+            } catch (emailError) {
+                console.error('❌ Email sending failed:', emailError);
+                // Don't fail the whole transaction if email fails
+            }
+            
             // Commit transaction
             await session.commitTransaction();
             session.endSession();
             
             console.log('✅ Appointment rescheduled successfully');
             
-            res.json({
+            // Prepare response
+            const responseData = {
                 success: true,
                 message: 'Appointment rescheduled successfully. It is now pending approval.',
                 data: {
@@ -2265,7 +2700,18 @@ exports.rescheduleAppointment = async (req, res) => {
                         doctorName: doctor.name
                     }
                 }
-            });
+            };
+            
+            // Add email status to response if email was sent
+            if (emailResult) {
+                responseData.emailStatus = {
+                    sent: emailResult.success,
+                    messageId: emailResult.messageId,
+                    error: emailResult.error
+                };
+            }
+            
+            res.json(responseData);
             
         } catch (transactionError) {
             // Rollback transaction
@@ -2300,4 +2746,66 @@ exports.rescheduleAppointment = async (req, res) => {
             message: error.message || 'Failed to reschedule appointment'
         });
     }
+};
+
+
+
+
+
+// Add this method to appointmentController.js
+exports.sendRescheduleEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const emailData = req.body;
+    
+    console.log('📧 === SEND RESCHEDULE EMAIL ===');
+    console.log('Appointment ID:', id);
+    console.log('Email Data:', emailData);
+    
+    // Find the appointment
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+    
+    // Send reschedule email
+    const emailResult = await emailService.sendAppointmentRescheduled({
+      patient: appointment.patient,
+      doctor: appointment.doctorInfo,
+      oldAppointmentDate: emailData.oldAppointmentDate || appointment.appointmentDate,
+      oldAppointmentTime: emailData.oldAppointmentTime || appointment.appointmentTime,
+      newAppointmentDate: emailData.newAppointmentDate,
+      newAppointmentTime: emailData.newAppointmentTime,
+      slotSerialNumber: emailData.slotSerialNumber || appointment.slotSerialNumber,
+      appointmentId: appointment._id,
+      remarks: emailData.remarks || 'Your appointment has been rescheduled by the clinic.'
+    });
+    
+    // Update appointment with email status
+    if (emailResult.success) {
+      appointment.emailSent = true;
+      appointment.lastEmailType = 'reschedule';
+      appointment.lastEmailSentAt = new Date();
+      appointment.emailMessageId = emailResult.messageId;
+      await appointment.save();
+    }
+    
+    res.json({
+      success: emailResult.success,
+      message: emailResult.success 
+        ? 'Reschedule email sent successfully' 
+        : 'Failed to send email',
+      emailResult: emailResult
+    });
+    
+  } catch (error) {
+    console.error('❌ Error sending reschedule email:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send reschedule email'
+    });
+  }
 };

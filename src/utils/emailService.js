@@ -1329,6 +1329,313 @@ async sendAppointmentStatusUpdate(appointmentData) {
     };
   }
 }
+// Add this method to your EmailService class
+async sendAppointmentRescheduled(appointmentData) {
+  try {
+    const { 
+      patient, 
+      doctor, 
+      oldAppointmentDate,
+      oldAppointmentTime,
+      newAppointmentDate, 
+      newAppointmentTime, 
+      slotSerialNumber,
+      appointmentId,
+      remarks = ''
+    } = appointmentData;
+    
+    console.log('📧 Preparing reschedule notification email...');
+    console.log('- Patient:', patient.email);
+    console.log('- Old Date/Time:', oldAppointmentDate, oldAppointmentTime);
+    console.log('- New Date/Time:', newAppointmentDate, newAppointmentTime);
+    
+    // Format dates
+    const oldFormattedDate = new Date(oldAppointmentDate).toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    const newFormattedDate = new Date(newAppointmentDate).toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    const mailOptions = {
+      from: `"Doctor Appointment System" <${process.env.SMTP_USER}>`,
+      to: patient.email,
+      cc: process.env.SMTP_USER,
+      subject: `Appointment Rescheduled - Serial #${slotSerialNumber || 'N/A'}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Appointment Rescheduled</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              color: #333333;
+              margin: 0;
+              padding: 0;
+              background-color: #f7f9fc;
+            }
+            
+            .email-container {
+              max-width: 600px;
+              margin: 0 auto;
+              background-color: #ffffff;
+            }
+            
+            .email-header {
+              background: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+              color: white;
+              padding: 30px 20px;
+              text-align: center;
+              border-radius: 8px 8px 0 0;
+            }
+            
+            .email-header h1 {
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+            }
+            
+            .email-header p {
+              margin: 10px 0 0;
+              font-size: 16px;
+              opacity: 0.9;
+            }
+            
+            .email-content {
+              padding: 30px;
+            }
+            
+            .change-banner {
+              background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+              border: 1px solid #fcd34d;
+              border-radius: 8px;
+              padding: 20px;
+              margin-bottom: 25px;
+              text-align: center;
+            }
+            
+            .change-banner h3 {
+              margin: 0 0 10px 0;
+              font-size: 22px;
+              color: #92400e;
+            }
+            
+            .info-card {
+              background: #ffffff;
+              border: 1px solid #e2e8f0;
+              border-radius: 10px;
+              padding: 25px;
+              margin-bottom: 20px;
+            }
+            
+            .comparison-container {
+              display: grid;
+              grid-template-columns: 1fr auto 1fr;
+              gap: 20px;
+              margin: 20px 0;
+              align-items: center;
+            }
+            
+            .old-slot {
+              background: #fef2f2;
+              border: 1px solid #fecaca;
+              border-radius: 8px;
+              padding: 15px;
+            }
+            
+            .new-slot {
+              background: #f0fdf4;
+              border: 1px solid #bbf7d0;
+              border-radius: 8px;
+              padding: 15px;
+            }
+            
+            .arrow {
+              text-align: center;
+              color: #4f46e5;
+              font-size: 24px;
+            }
+            
+            @media (max-width: 768px) {
+              .comparison-container {
+                grid-template-columns: 1fr;
+                gap: 10px;
+              }
+              
+              .arrow {
+                transform: rotate(90deg);
+                margin: 10px 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="email-header">
+              <h1>Appointment Rescheduled</h1>
+              <p>Your appointment has been rescheduled by the clinic</p>
+            </div>
+            
+            <div class="email-content">
+              <div class="change-banner">
+                <h3>Appointment Rescheduled</h3>
+                <p>The clinic has rescheduled your appointment. Please note the new details below.</p>
+              </div>
+              
+              <div class="info-card">
+                <h2 style="color: #1e293b; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+                  Patient Information
+                </h2>
+                
+                <p><strong>Patient Name:</strong> ${patient.fullName}</p>
+                <p><strong>Serial Number:</strong> #${slotSerialNumber || 'N/A'}</p>
+                <p><strong>Appointment ID:</strong> <code>${appointmentId}</code></p>
+              </div>
+              
+              <!-- Comparison Section -->
+              <div class="comparison-container">
+                <div class="old-slot">
+                  <h4 style="color: #dc2626; margin-top: 0;">Previous Appointment</h4>
+                  <p><strong>Date:</strong> ${oldFormattedDate}</p>
+                  <p><strong>Time:</strong> ${oldAppointmentTime}</p>
+                </div>
+                
+                <div class="arrow">
+                  <strong>→</strong>
+                </div>
+                
+                <div class="new-slot">
+                  <h4 style="color: #059669; margin-top: 0;">New Appointment</h4>
+                  <p><strong>Date:</strong> ${newFormattedDate}</p>
+                  <p><strong>Time:</strong> ${newAppointmentTime}</p>
+                </div>
+              </div>
+              
+              <div class="info-card">
+                <h2 style="color: #1e293b; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+                  Doctor Information
+                </h2>
+                
+                <p><strong>Doctor:</strong> Dr. ${doctor.name}</p>
+                <p><strong>Speciality:</strong> ${doctor.speciality || 'General Medicine'}</p>
+                <p><strong>Location:</strong> ${doctor.location || 'Clinic Location'}</p>
+              </div>
+              
+              ${remarks ? `
+                <div class="info-card" style="border-left: 4px solid #0ea5e9;">
+                  <h3 style="color: #0369a1; margin-top: 0;">Remarks from Clinic</h3>
+                  <p>${remarks}</p>
+                </div>
+              ` : ''}
+              
+              <div class="info-card">
+                <h2 style="color: #1e293b; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+                  Important Notes
+                </h2>
+                
+                <ul style="padding-left: 20px; margin: 15px 0;">
+                  <li>Please arrive <strong>30 minutes before</strong> your new scheduled time</li>
+                  <li>Bring your ID and any medical records</li>
+                  <li>If you cannot make the new time, please contact the clinic as soon as possible</li>
+                  <li>This is an automated notification. Please do not reply to this email</li>
+                </ul>
+              </div>
+              
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b;">
+                <p><strong>Clinic Contact:</strong></p>
+                <p>📞 ${process.env.CONTACT_PHONE || 'Contact us at our helpline'}</p>
+                <p>📧 ${process.env.OWNER_EMAIL || 'appointment@doctorappointment.a2itltd.com'}</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        ===========================================
+        APPOINTMENT RESCHEDULED - SERIAL #${slotSerialNumber || 'N/A'}
+        ===========================================
+        
+        Dear ${patient.fullName},
+        
+        Your appointment has been rescheduled by the clinic staff.
+        
+        APPOINTMENT DETAILS:
+        ====================
+        Serial Number: #${slotSerialNumber}
+        Appointment ID: ${appointmentId}
+        
+        CHANGE SUMMARY:
+        ===============
+        PREVIOUS APPOINTMENT:
+        Date: ${oldFormattedDate}
+        Time: ${oldAppointmentTime}
+        
+        NEW APPOINTMENT:
+        Date: ${newFormattedDate}
+        Time: ${newAppointmentTime}
+        
+        DOCTOR INFORMATION:
+        ===================
+        Doctor: Dr. ${doctor.name}
+        Speciality: ${doctor.speciality || 'General Medicine'}
+        Location: ${doctor.location || 'Clinic Location'}
+        
+        ${remarks ? `REMARKS:\n${remarks}\n` : ''}
+        
+        IMPORTANT NOTES:
+        ===============
+        1. Please arrive 30 minutes before your new scheduled time
+        2. Bring your ID and any medical records
+        3. If you cannot make the new time, contact the clinic ASAP
+        4. This is an automated notification
+        
+        CONTACT INFORMATION:
+        ===================
+        Phone: ${process.env.CONTACT_PHONE || 'Our helpline'}
+        Email: ${process.env.OWNER_EMAIL || 'appointment@doctorappointment.a2itltd.com'}
+        
+        ===========================================
+        © ${new Date().getFullYear()} Doctor Appointment System
+        ===========================================
+      `
+    };
+    
+    const info = await this.transporter.sendMail(mailOptions);
+    console.log('✅ Reschedule email sent successfully');
+    
+    return {
+      success: true,
+      messageId: info.messageId,
+      emailSent: true,
+      recipients: {
+        patient: patient.email,
+        system: process.env.SMTP_USER
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ Reschedule email failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      emailSent: false
+    };
+  }
+}
+
+
 }
 
 module.exports = new EmailService();
