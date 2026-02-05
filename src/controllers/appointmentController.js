@@ -531,7 +531,8 @@ exports.createAppointment = async (req, res) => {
                     appointmentDate: parsedAppointmentDate,
                     appointmentTime: startTime,
                     slotSerialNumber: finalSerialNumber,
-                    appointmentId: appointment._id
+                    appointmentId: appointment._id,
+                      status: 'confirmed'
                 });
 
                 // Update appointment with email status
@@ -762,6 +763,9 @@ exports.updateAppointmentStatus = async (req, res) => {
                     doctor.timeSlots[slotIndex].status = 'available';
                     doctor.timeSlots[slotIndex].patientInfo = null;
                     await doctor.save();
+
+
+                    
                 }
             }
         }
@@ -769,6 +773,26 @@ exports.updateAppointmentStatus = async (req, res) => {
         appointment.status = status;
         appointment.updatedAt = new Date();
         await appointment.save();
+
+         // Send status update email if status changed to confirmed
+        if (status === 'confirmed' && oldStatus !== 'confirmed') {
+            try {
+                await emailService.sendAppointmentStatusUpdate({
+                    patient: appointment.patient,
+                    doctor: appointment.doctorInfo,
+                    appointmentDate: appointment.appointmentDate,
+                    appointmentTime: appointment.appointmentTime,
+                    slotSerialNumber: appointment.slotSerialNumber,
+                    appointmentId: appointment._id,
+                    status: status,
+                    remarks: remarks
+                });
+            } catch (emailError) {
+                console.error('Email sending failed:', emailError);
+                // Don't fail the whole request if email fails
+            }
+        }
+        
         
         res.json({
             success: true,
@@ -1388,6 +1412,7 @@ exports.createClientAppointment = async (req, res) => {
             let emailResult = null;
             try {
                 console.log('📧 Attempting to send pending appointment email...');
+                
                 emailResult = await emailService.sendAppointmentConfirmation({
                     patient,
                     doctor: {
