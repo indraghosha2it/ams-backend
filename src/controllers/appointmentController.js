@@ -729,11 +729,93 @@ exports.getAppointmentsByPatientEmail = async (req, res) => {
     }
 };
 
+// Update appointment status without mail
+// exports.updateAppointmentStatus = async (req, res) => {
+//     try {
+//         const { id } = req.params;
+//         const { status } = req.body;
+        
+//         const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
+//         if (!validStatuses.includes(status)) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+//             });
+//         }
+        
+//         const appointment = await Appointment.findById(id);
+//         if (!appointment) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Appointment not found'
+//             });
+//         }
+        
+//         // If cancelling, we should also free up the doctor's slot
+//         if (status === 'cancelled' && appointment.status !== 'cancelled') {
+//             const doctor = await Doctor.findById(appointment.doctorId);
+//             if (doctor) {
+//                 const slotIndex = doctor.timeSlots.findIndex(slot => 
+//                     slot._id.toString() === appointment.slotId
+//                 );
+                
+//                 if (slotIndex !== -1) {
+//                     doctor.timeSlots[slotIndex].status = 'available';
+//                     doctor.timeSlots[slotIndex].patientInfo = null;
+//                     await doctor.save();
+
+
+                    
+//                 }
+//             }
+//         }
+        
+//         appointment.status = status;
+//         appointment.updatedAt = new Date();
+//         await appointment.save();
+
+//          // Send status update email if status changed to confirmed
+//         if (status === 'confirmed' && oldStatus !== 'confirmed') {
+//             try {
+//                 await emailService.sendAppointmentStatusUpdate({
+//                     patient: appointment.patient,
+//                     doctor: appointment.doctorInfo,
+//                     appointmentDate: appointment.appointmentDate,
+//                     appointmentTime: appointment.appointmentTime,
+//                     slotSerialNumber: appointment.slotSerialNumber,
+//                     appointmentId: appointment._id,
+//                     status: status,
+//                     remarks: remarks
+//                 });
+//             } catch (emailError) {
+//                 console.error('Email sending failed:', emailError);
+//                 // Don't fail the whole request if email fails
+//             }
+//         }
+        
+        
+//         res.json({
+//             success: true,
+//             message: `Appointment status updated to ${status}`,
+//             data: appointment
+//         });
+//     } catch (error) {
+//         res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
 // Update appointment status
 exports.updateAppointmentStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, remarks = '' } = req.body;
+        
+        console.log('📋 === UPDATE APPOINTMENT STATUS ===');
+        console.log('Appointment ID:', id);
+        console.log('New Status:', status);
+        console.log('Remarks:', remarks);
         
         const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
         if (!validStatuses.includes(status)) {
@@ -751,8 +833,11 @@ exports.updateAppointmentStatus = async (req, res) => {
             });
         }
         
+        // Store old status for comparison
+        const oldStatus = appointment.status;
+        
         // If cancelling, we should also free up the doctor's slot
-        if (status === 'cancelled' && appointment.status !== 'cancelled') {
+        if (status === 'cancelled' && oldStatus !== 'cancelled') {
             const doctor = await Doctor.findById(appointment.doctorId);
             if (doctor) {
                 const slotIndex = doctor.timeSlots.findIndex(slot => 
@@ -763,21 +848,63 @@ exports.updateAppointmentStatus = async (req, res) => {
                     doctor.timeSlots[slotIndex].status = 'available';
                     doctor.timeSlots[slotIndex].patientInfo = null;
                     await doctor.save();
-
-
-                    
+                    console.log('✅ Doctor slot freed up');
                 }
             }
         }
         
+        // If changing from cancelled to another status, check if slot is available
+        if (oldStatus === 'cancelled' && status !== 'cancelled') {
+            const doctor = await Doctor.findById(appointment.doctorId);
+            if (doctor) {
+                const slotIndex = doctor.timeSlots.findIndex(slot => 
+                    slot._id.toString() === appointment.slotId
+                );
+                
+                if (slotIndex !== -1 && doctor.timeSlots[slotIndex].status !== 'available') {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'This time slot is no longer available. Please choose another slot.',
+                        slotAvailable: false
+                    });
+                }
+                
+                // Re-book the slot
+                if (slotIndex !== -1) {
+                    doctor.timeSlots[slotIndex].status = 'booked';
+                    doctor.timeSlots[slotIndex].patientInfo = {
+                        name: appointment.patient.fullName,
+                        phone: appointment.patient.phone,
+                        email: appointment.patient.email,
+                        appointmentId: appointment._id,
+                        serialNumber: appointment.slotSerialNumber
+                    };
+                    await doctor.save();
+                    console.log('✅ Doctor slot re-booked');
+                }
+            }
+        }
+        
+        // Update appointment status
         appointment.status = status;
         appointment.updatedAt = new Date();
+        
+        // Add remarks if provided
+        if (remarks) {
+            appointment.remarks = remarks;
+        }
+        
         await appointment.save();
-
-         // Send status update email if status changed to confirmed
-        if (status === 'confirmed' && oldStatus !== 'confirmed') {
+        
+        console.log('✅ Appointment status updated successfully');
+        
+        // Send status update email if status changed (excluding 'no-show' and 'completed' if needed)
+        if (oldStatus !== status) {
             try {
-                await emailService.sendAppointmentStatusUpdate({
+                console.log('📧 Preparing to send status update email...');
+                
+                // Prepare email data
+                const emailData = {
                     patient: appointment.patient,
                     doctor: appointment.doctorInfo,
                     appointmentDate: appointment.appointmentDate,
@@ -786,23 +913,77 @@ exports.updateAppointmentStatus = async (req, res) => {
                     appointmentId: appointment._id,
                     status: status,
                     remarks: remarks
-                });
+                };
+                
+                let emailResult = null;
+                
+                // Send different email based on status
+                if (status === 'confirmed') {
+                    console.log('📧 Sending confirmation email...');
+                    emailResult = await emailService.sendAppointmentConfirmation(emailData);
+                } else if (status === 'cancelled') {
+                    console.log('📧 Sending cancellation email...');
+                    emailResult = await emailService.sendAppointmentStatusUpdate(emailData);
+                } else if (status === 'pending') {
+                    console.log('📧 Sending pending status email...');
+                    emailResult = await emailService.sendAppointmentConfirmation({
+                        ...emailData,
+                        status: 'pending'
+                    });
+                } else {
+                    console.log('📧 Sending status update email...');
+                    emailResult = await emailService.sendAppointmentStatusUpdate(emailData);
+                }
+                
+                if (emailResult && emailResult.success) {
+                    console.log('✅ Status update email sent successfully');
+                    
+                    // Update appointment with email status
+                    appointment.emailSent = emailResult.success;
+                    appointment.lastEmailStatus = status;
+                    appointment.lastEmailSentAt = new Date();
+                    await appointment.save();
+                } else {
+                    console.log('⚠️ Email service returned error:', emailResult?.error);
+                }
+                
             } catch (emailError) {
-                console.error('Email sending failed:', emailError);
+                console.error('❌ Email sending failed:', emailError);
                 // Don't fail the whole request if email fails
             }
         }
         
-        
-        res.json({
+        // Prepare response data
+        const responseData = {
             success: true,
             message: `Appointment status updated to ${status}`,
             data: appointment
-        });
+        };
+        
+        // Add email status to response if email was sent
+        if (oldStatus !== status) {
+            responseData.emailStatus = {
+                sent: true,
+                status: status
+            };
+        }
+        
+        res.json(responseData);
+        
     } catch (error) {
+        console.error('❌ Error updating appointment status:', error);
+        console.error('❌ Error details:', error.message);
+        
+        if (error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid appointment ID format'
+            });
+        }
+        
         res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message || 'Failed to update appointment status'
         });
     }
 };
@@ -1522,15 +1703,175 @@ exports.createClientAppointment = async (req, res) => {
 
 
 // Cancel appointment (client only - can only cancel their own appointments)
+// exports.cancelClientAppointment = async (req, res) => {
+//     try {
+//         const { id } = req.params;
+        
+//         console.log('📥 === CLIENT CANCEL APPOINTMENT REQUEST ===');
+//         console.log('👤 Client:', req.user.email);
+//         console.log('👤 Client role:', req.user.role);
+//         console.log('🆔 Appointment ID:', id);
+        
+//         // Validate appointment ID
+//         if (!id || id === 'undefined' || id === 'null') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid appointment ID'
+//             });
+//         }
+        
+//         // Find appointment
+//         const appointment = await Appointment.findById(id);
+//         if (!appointment) {
+//             console.log('❌ Appointment not found for ID:', id);
+//             return res.status(404).json({
+//                 success: false,
+//                 message: 'Appointment not found'
+//             });
+//         }
+        
+//         console.log('📋 Found appointment:', {
+//             id: appointment._id,
+//             patientEmail: appointment.patient.email,
+//             status: appointment.status,
+//             date: appointment.appointmentDate,
+//             time: appointment.appointmentTime
+//         });
+        
+//         // Authorization check: client can only cancel their own appointments
+//         if (appointment.patient.email.toLowerCase() !== req.user.email.toLowerCase()) {
+//             console.log('❌ Authorization failed:', {
+//                 appointmentEmail: appointment.patient.email,
+//                 userEmail: req.user.email
+//             });
+//             return res.status(403).json({
+//                 success: false,
+//                 message: 'You can only cancel your own appointments'
+//             });
+//         }
+        
+//         // Check if appointment can be cancelled (not already cancelled)
+//         if (appointment.status === 'cancelled') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Appointment is already cancelled'
+//             });
+//         }
+        
+//         // Check if appointment can be cancelled (not completed)
+//         if (appointment.status === 'completed') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Cannot cancel a completed appointment'
+//             });
+//         }
+        
+//         // Check if appointment time has already passed TODAY
+//         const appointmentDateTime = new Date(appointment.appointmentDate);
+//         const appointmentTime = appointment.appointmentTime; // "HH:MM" format
+        
+//         // Parse appointment time (HH:MM)
+//         const [appointmentHour, appointmentMinute] = appointmentTime.split(':').map(Number);
+//         appointmentDateTime.setHours(appointmentHour, appointmentMinute, 0, 0);
+        
+//         const now = new Date();
+        
+//         console.log('⏰ Time comparison:', {
+//             appointmentDateTime: appointmentDateTime.toISOString(),
+//             now: now.toISOString(),
+//             isPast: appointmentDateTime < now
+//         });
+        
+//         // If appointment time has already passed today
+//         if (appointmentDateTime < now) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Cannot cancel past appointments',
+//                 isTimePassed: true
+//             });
+//         }
+        
+//         console.log('🔄 Starting cancellation process...');
+        
+//         // If cancelling, free up the doctor's slot
+//         if (appointment.status !== 'cancelled') {
+//             const doctor = await Doctor.findById(appointment.doctorId);
+//             if (doctor) {
+//                 console.log('🔍 Found doctor:', doctor.name);
+//                 const slotIndex = doctor.timeSlots.findIndex(slot => 
+//                     slot._id.toString() === appointment.slotId
+//                 );
+                
+//                 console.log('🔍 Slot index:', slotIndex);
+                
+//                 if (slotIndex !== -1) {
+//                     doctor.timeSlots[slotIndex].status = 'available';
+//                     doctor.timeSlots[slotIndex].patientInfo = null;
+//                     await doctor.save();
+//                     console.log('✅ Doctor slot freed up');
+//                 } else {
+//                     console.log('⚠️ Slot not found in doctor timeSlots');
+//                 }
+//             } else {
+//                 console.log('⚠️ Doctor not found for ID:', appointment.doctorId);
+//             }
+//         }
+        
+//         // Update appointment status to cancelled
+//         appointment.status = 'cancelled';
+//         appointment.updatedAt = new Date();
+//         await appointment.save();
+        
+//         console.log('✅ Appointment cancelled by client successfully');
+        
+//         res.json({
+//             success: true,
+//             message: 'Appointment cancelled successfully',
+//             data: appointment
+//         });
+//     } catch (error) {
+//         console.error('❌ Error cancelling appointment:', error);
+//         console.error('❌ Error name:', error.name);
+//         console.error('❌ Error message:', error.message);
+//         console.error('❌ Error stack:', error.stack);
+        
+//         // Check for Mongoose CastError (invalid ID)
+//         if (error.name === 'CastError') {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid appointment ID format'
+//             });
+//         }
+        
+//         res.status(500).json({
+//             success: false,
+//             message: error.message || 'Failed to cancel appointment'
+//         });
+//     }
+// };
+  
 // Cancel appointment (client only - can only cancel their own appointments)
+// In appointmentController.js
 exports.cancelClientAppointment = async (req, res) => {
     try {
         const { id } = req.params;
         
         console.log('📥 === CLIENT CANCEL APPOINTMENT REQUEST ===');
-        console.log('👤 Client:', req.user.email);
-        console.log('👤 Client role:', req.user.role);
+        console.log('👤 Full user object:', req.user);
+        console.log('👤 User email from req.user:', req.user?.email);
+        console.log('👤 User role from req.user:', req.user?.role);
         console.log('🆔 Appointment ID:', id);
+        
+        // Check if user info exists
+        if (!req.user || !req.user.email) {
+            console.log('❌ No user email found in request');
+            return res.status(401).json({
+                success: false,
+                message: 'User not properly authenticated'
+            });
+        }
+        
+        const userEmail = req.user.email.toLowerCase();
         
         // Validate appointment ID
         if (!id || id === 'undefined' || id === 'null') {
@@ -1553,16 +1894,18 @@ exports.cancelClientAppointment = async (req, res) => {
         console.log('📋 Found appointment:', {
             id: appointment._id,
             patientEmail: appointment.patient.email,
+            appointmentEmail: appointment.patient.email?.toLowerCase(),
             status: appointment.status,
             date: appointment.appointmentDate,
             time: appointment.appointmentTime
         });
         
         // Authorization check: client can only cancel their own appointments
-        if (appointment.patient.email.toLowerCase() !== req.user.email.toLowerCase()) {
+        const appointmentEmail = appointment.patient.email?.toLowerCase();
+        if (appointmentEmail !== userEmail) {
             console.log('❌ Authorization failed:', {
-                appointmentEmail: appointment.patient.email,
-                userEmail: req.user.email
+                userEmail: userEmail,
+                appointmentEmail: appointmentEmail
             });
             return res.status(403).json({
                 success: false,
@@ -1613,8 +1956,12 @@ exports.cancelClientAppointment = async (req, res) => {
         
         console.log('🔄 Starting cancellation process...');
         
-        // If cancelling, free up the doctor's slot
-        if (appointment.status !== 'cancelled') {
+        // Start a transaction to ensure both operations succeed or fail together
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        
+        try {
+            // 1. Free up the doctor's slot
             const doctor = await Doctor.findById(appointment.doctorId);
             if (doctor) {
                 console.log('🔍 Found doctor:', doctor.name);
@@ -1627,7 +1974,7 @@ exports.cancelClientAppointment = async (req, res) => {
                 if (slotIndex !== -1) {
                     doctor.timeSlots[slotIndex].status = 'available';
                     doctor.timeSlots[slotIndex].patientInfo = null;
-                    await doctor.save();
+                    await doctor.save({ session });
                     console.log('✅ Doctor slot freed up');
                 } else {
                     console.log('⚠️ Slot not found in doctor timeSlots');
@@ -1635,22 +1982,94 @@ exports.cancelClientAppointment = async (req, res) => {
             } else {
                 console.log('⚠️ Doctor not found for ID:', appointment.doctorId);
             }
+            
+            // 2. Update appointment status to cancelled
+            appointment.status = 'cancelled';
+            appointment.updatedAt = new Date();
+            await appointment.save({ session });
+            
+            console.log('✅ Appointment cancelled by client successfully');
+            
+            // 3. Send cancellation email
+            let emailResult = null;
+            try {
+                console.log('📧 Preparing to send cancellation email...');
+                
+                // Prepare email data
+                const emailData = {
+                    patient: appointment.patient,
+                    doctor: appointment.doctorInfo,
+                    appointmentDate: appointment.appointmentDate,
+                    appointmentTime: appointment.appointmentTime,
+                    slotSerialNumber: appointment.slotSerialNumber,
+                    appointmentId: appointment._id,
+                    status: 'cancelled',
+                    remarks: 'Cancelled by patient'
+                };
+                
+                emailResult = await emailService.sendAppointmentStatusUpdate(emailData);
+                
+                if (emailResult && emailResult.success) {
+                    console.log('✅ Cancellation email sent successfully');
+                    
+                    // Update appointment with email status
+                    appointment.emailSent = emailResult.success;
+                    appointment.lastEmailStatus = 'cancelled';
+                    appointment.lastEmailSentAt = new Date();
+                    appointment.emailMessageId = emailResult.messageId;
+                    await appointment.save({ session });
+                } else {
+                    console.log('⚠️ Email service returned error:', emailResult?.error);
+                }
+                
+            } catch (emailError) {
+                console.error('❌ Email sending failed:', emailError);
+                // Don't fail the whole request if email fails
+            }
+            
+            // Commit the transaction
+            await session.commitTransaction();
+            session.endSession();
+            
+            console.log('✅ Transaction committed successfully');
+            
+            // Prepare response data
+            const responseData = {
+                success: true,
+                message: 'Appointment cancelled successfully',
+                data: appointment
+            };
+            
+            // Add email status to response if email was sent
+            if (emailResult && emailResult.success) {
+                responseData.emailStatus = {
+                    sent: true,
+                    status: 'cancelled',
+                    messageId: emailResult.messageId
+                };
+            }
+            
+            res.json(responseData);
+            
+        } catch (transactionError) {
+            // Rollback the transaction
+            console.log('❌ Transaction failed, rolling back...');
+            await session.abortTransaction();
+            session.endSession();
+            
+            console.error('❌ Transaction error:', transactionError);
+            console.error('❌ Error name:', transactionError.name);
+            console.error('❌ Error message:', transactionError.message);
+            console.error('❌ Error stack:', transactionError.stack);
+            
+            res.status(500).json({
+                success: false,
+                message: 'Transaction failed: ' + transactionError.message
+            });
         }
         
-        // Update appointment status to cancelled
-        appointment.status = 'cancelled';
-        appointment.updatedAt = new Date();
-        await appointment.save();
-        
-        console.log('✅ Appointment cancelled by client successfully');
-        
-        res.json({
-            success: true,
-            message: 'Appointment cancelled successfully',
-            data: appointment
-        });
     } catch (error) {
-        console.error('❌ Error cancelling appointment:', error);
+        console.error('❌ Error in cancelClientAppointment:', error);
         console.error('❌ Error name:', error.name);
         console.error('❌ Error message:', error.message);
         console.error('❌ Error stack:', error.stack);

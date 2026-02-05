@@ -36,7 +36,15 @@ const authMiddleware = async (req, res, next) => {
       });
     }
     
-    req.user = user;
+    // req.user = user;
+        req.user = {
+      ...user.toObject(), // Convert mongoose document to plain object
+      _id: user._id,
+      email: user.email,
+      role: user.role,
+      // Also store the decoded token info for easy access
+      tokenData: decoded
+    };
     req.token = token;
     next();
   } catch (error) {

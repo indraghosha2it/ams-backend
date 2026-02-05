@@ -465,7 +465,7 @@ async sendAppointmentConfirmation(appointmentData) {
       statusBadge = 'CONFIRMED';
     } else if (status === 'pending') {
       subject = `Appointment Request Received - Serial #${slotSerialNumber || 'N/A'}`;
-      statusMessage = 'Your appointment request has been received and is pending approval.';
+      statusMessage = 'Your appointment request  is pending approval.';
       statusBadge = 'PENDING APPROVAL';
     } else {
       subject = `Appointment Status - Serial #${slotSerialNumber || 'N/A'}`;
@@ -994,82 +994,341 @@ async sendAppointmentConfirmation(appointmentData) {
     }
   }
 
-  // Send appointment status update email
-  async sendAppointmentStatusUpdate(appointmentData) {
-    try {
-      const { patient, doctor, appointmentDate, appointmentTime, status, remarks } = appointmentData;
+  // Send appointment status update email 1
+  // async sendAppointmentStatusUpdate(appointmentData) {
+  //   try {
+  //     const { patient, doctor, appointmentDate, appointmentTime, status, remarks } = appointmentData;
       
-      const mailOptions = {
-        from: `"Doctor Appointment System" <${process.env.SMTP_USER}>`,
-        to: patient.email,
-        subject: `Appointment Status Update: ${status}`,
-        html: `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #059669 0%, #0d9488 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0; }
-              .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none; }
-              .status-badge { 
-                display: inline-block; 
-                padding: 5px 15px; 
-                border-radius: 20px; 
-                font-weight: bold;
-                margin-bottom: 15px;
-              }
-              .status-confirmed { background: #059669; color: white; }
-              .status-cancelled { background: #dc2626; color: white; }
-              .status-completed { background: #2563eb; color: white; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>Appointment Status Update</h1>
-                <p>Your appointment status has been updated</p>
-              </div>
-              <div class="content">
-                <div class="status-badge status-${status}">
-                  Status: ${status.toUpperCase()}
-                </div>
+  //     const mailOptions = {
+  //       from: `"Doctor Appointment System" <${process.env.SMTP_USER}>`,
+  //       to: patient.email,
+  //       subject: `Appointment Status Update: ${status}`,
+  //       html: `
+  //         <!DOCTYPE html>
+  //         <html>
+  //         <head>
+  //           <style>
+  //             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+  //             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+  //             .header { background: linear-gradient(135deg, #059669 0%, #0d9488 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0; }
+  //             .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none; }
+  //             .status-badge { 
+  //               display: inline-block; 
+  //               padding: 5px 15px; 
+  //               border-radius: 20px; 
+  //               font-weight: bold;
+  //               margin-bottom: 15px;
+  //             }
+  //             .status-confirmed { background: #059669; color: white; }
+  //             .status-cancelled { background: #dc2626; color: white; }
+  //             .status-completed { background: #2563eb; color: white; }
+  //           </style>
+  //         </head>
+  //         <body>
+  //           <div class="container">
+  //             <div class="header">
+  //               <h1>Appointment Status Update</h1>
+  //               <p>Your appointment status has been updated</p>
+  //             </div>
+  //             <div class="content">
+  //               <div class="status-badge status-${status}">
+  //                 Status: ${status.toUpperCase()}
+  //               </div>
                 
-                <h3>Appointment Details</h3>
+  //               <h3>Appointment Details</h3>
+  //               <p><strong>Patient:</strong> ${patient.fullName}</p>
+  //               <p><strong>Date:</strong> ${new Date(appointmentDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  //               <p><strong>Time:</strong> ${appointmentTime}</p>
+  //               <p><strong>Doctor:</strong> Dr. ${doctor.name}</p>
+  //               <p><strong>Speciality:</strong> ${doctor.speciality || 'General Medicine'}</p>
+                
+  //               ${remarks ? `<p><strong>Remarks:</strong> ${remarks}</p>` : ''}
+                
+  //               <div class="footer">
+  //                 <p>For any questions, contact: ${process.env.OWNER_EMAIL || 'appointment@doctorappointment.a2itltd.com'}</p>
+  //                 <p>© ${new Date().getFullYear()} Doctor Appointment System. All rights reserved.</p>
+  //               </div>
+  //             </div>
+  //           </div>
+  //         </body>
+  //         </html>
+  //       `
+  //     };
+
+  //     const info = await this.transporter.sendMail(mailOptions);
+  //     console.log('✅ Status update email sent:', info.messageId);
+  //     return {
+  //       success: true,
+  //       messageId: info.messageId
+  //     };
+      
+  //   } catch (error) {
+  //     console.error('❌ Status update email failed:', error);
+  //     return {
+  //       success: false,
+  //       error: error.message
+  //     };
+  //   }
+  // }
+  // In emailService.js - Enhanced sendAppointmentStatusUpdate method
+async sendAppointmentStatusUpdate(appointmentData) {
+  try {
+    const { 
+      patient, 
+      doctor, 
+      appointmentDate, 
+      appointmentTime, 
+      slotSerialNumber,
+      appointmentId,
+      status,
+      remarks = ''
+    } = appointmentData;
+    
+    console.log('📧 Preparing status update email for status:', status);
+    console.log('- Patient:', patient.email);
+    console.log('- Status:', status);
+    
+    // Format appointment date
+    const formattedDate = new Date(appointmentDate).toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    // Determine subject and content based on status
+    let subject, headerTitle, statusMessage, statusColor, headerBgColor;
+    
+    switch(status) {
+      case 'cancelled':
+        subject = `Appointment Cancelled - Serial #${slotSerialNumber || 'N/A'}`;
+        headerTitle = 'Appointment Cancelled';
+        statusMessage = 'Your appointment has been cancelled.';
+        statusColor = '#dc2626';
+        headerBgColor = 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)';
+        break;
+      case 'confirmed':
+        subject = `Appointment Confirmed - Serial #${slotSerialNumber || 'N/A'}`;
+        headerTitle = 'Appointment Confirmed';
+        statusMessage = 'Your appointment has been confirmed.';
+        statusColor = '#059669';
+        headerBgColor = 'linear-gradient(135deg, #059669 0%, #0d9488 100%)';
+        break;
+      case 'pending':
+        subject = `Appointment Status Update - Serial #${slotSerialNumber || 'N/A'}`;
+        headerTitle = 'Appointment Status Update';
+        statusMessage = 'Your appointment status has been updated.';
+        statusColor = '#d97706';
+        headerBgColor = 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)';
+        break;
+      default:
+        subject = `Appointment Status Update - Serial #${slotSerialNumber || 'N/A'}`;
+        headerTitle = 'Appointment Status Update';
+        statusMessage = `Your appointment status has been updated to ${status}.`;
+        statusColor = '#4f46e5';
+        headerBgColor = 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)';
+    }
+    
+    const mailOptions = {
+      from: `"Doctor Appointment System" <${process.env.SMTP_USER}>`,
+      to: patient.email,
+      cc: process.env.SMTP_USER, // CC to system
+      subject: subject,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${headerTitle}</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              color: #333333;
+              margin: 0;
+              padding: 0;
+              background-color: #f7f9fc;
+            }
+            
+            .email-container {
+              max-width: 600px;
+              margin: 0 auto;
+              background-color: #ffffff;
+            }
+            
+            .email-header {
+              background: ${headerBgColor};
+              color: white;
+              padding: 30px 20px;
+              text-align: center;
+              border-radius: 8px 8px 0 0;
+            }
+            
+            .email-header h1 {
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+            }
+            
+            .email-header p {
+              margin: 10px 0 0;
+              font-size: 16px;
+              opacity: 0.9;
+            }
+            
+            .email-content {
+              padding: 30px;
+            }
+            
+            .status-banner {
+              text-align: center;
+              margin-bottom: 25px;
+              padding: 20px;
+              border-radius: 8px;
+              background: ${status === 'cancelled' ? '#fee2e2' : 
+                          status === 'confirmed' ? '#d1fae5' : 
+                          status === 'pending' ? '#fef3c7' : '#e0e7ff'};
+              border: 1px solid ${status === 'cancelled' ? '#fecaca' : 
+                               status === 'confirmed' ? '#a7f3d0' : 
+                               status === 'pending' ? '#fde68a' : '#c7d2fe'};
+            }
+            
+            .status-banner h3 {
+              margin: 0 0 10px 0;
+              font-size: 22px;
+              color: ${statusColor};
+            }
+            
+            .info-card {
+              background: #ffffff;
+              border: 1px solid #e2e8f0;
+              border-radius: 10px;
+              padding: 25px;
+              margin-bottom: 20px;
+            }
+            
+            .remarks-box {
+              background: #f8fafc;
+              border-left: 4px solid ${statusColor};
+              padding: 15px;
+              margin: 20px 0;
+              border-radius: 0 4px 4px 0;
+            }
+            
+            .next-steps {
+              background: ${status === 'cancelled' ? '#fef2f2' : 
+                          status === 'confirmed' ? '#f0fdf4' : '#fffbeb'};
+              border: 1px solid ${status === 'cancelled' ? '#fecaca' : 
+                               status === 'confirmed' ? '#bbf7d0' : '#fde68a'};
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            
+            @media (max-width: 480px) {
+              .email-content {
+                padding: 20px;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="email-header">
+              <h1>${headerTitle}</h1>
+              <p>${statusMessage}</p>
+            </div>
+            
+            <div class="email-content">
+              <div class="status-banner">
+                <h3>STATUS: ${status.toUpperCase()}</h3>
+                <p>${statusMessage}</p>
+              </div>
+              
+              <div class="info-card">
+                <h2 style="color: #1e293b; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+                  Appointment Details
+                </h2>
+                
                 <p><strong>Patient:</strong> ${patient.fullName}</p>
-                <p><strong>Date:</strong> ${new Date(appointmentDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <p><strong>Serial Number:</strong> #${slotSerialNumber || 'N/A'}</p>
+                <p><strong>Date:</strong> ${formattedDate}</p>
                 <p><strong>Time:</strong> ${appointmentTime}</p>
                 <p><strong>Doctor:</strong> Dr. ${doctor.name}</p>
                 <p><strong>Speciality:</strong> ${doctor.speciality || 'General Medicine'}</p>
-                
-                ${remarks ? `<p><strong>Remarks:</strong> ${remarks}</p>` : ''}
-                
-                <div class="footer">
-                  <p>For any questions, contact: ${process.env.OWNER_EMAIL || 'appointment@doctorappointment.a2itltd.com'}</p>
-                  <p>© ${new Date().getFullYear()} Doctor Appointment System. All rights reserved.</p>
+                <p><strong>Appointment ID:</strong> <code>${appointmentId}</code></p>
+              </div>
+              
+              ${remarks ? `
+                <div class="remarks-box">
+                  <h3 style="color: ${statusColor}; margin-top: 0;">Remarks from Clinic:</h3>
+                  <p>${remarks}</p>
                 </div>
+              ` : ''}
+              
+              <div class="next-steps">
+                <h3 style="color: ${statusColor}; margin-top: 0;">
+                  ${status === 'cancelled' ? '❌ What to do next:' :
+                   status === 'confirmed' ? '✅ Next steps:' :
+                   '📋 Information:'}
+                </h3>
+                
+                ${status === 'cancelled' ? `
+                  <ul>
+                    <li>If you need to book another appointment, please visit our website</li>
+                    <li>Contact us if you have any questions about this cancellation</li>
+                    <li>For urgent medical needs, please call emergency services</li>
+                  </ul>
+                ` : status === 'confirmed' ? `
+                  <ul>
+                    <li>Please arrive 30 minutes before your scheduled time</li>
+                    <li>Bring your ID and any medical records</li>
+                    <li>Contact us if you need to reschedule or cancel</li>
+                  </ul>
+                ` : `
+                  <ul>
+                    <li>Your appointment is currently ${status}</li>
+                    <li>You will be notified if there are any further updates</li>
+                    <li>Contact us if you have any questions</li>
+                  </ul>
+                `}
+              </div>
+              
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b;">
+                <p><strong>Clinic Contact:</strong></p>
+                <p>📞 ${process.env.CONTACT_PHONE || 'Contact us at our helpline'}</p>
+                <p>📧 ${process.env.OWNER_EMAIL || 'appointment@doctorappointment.a2itltd.com'}</p>
               </div>
             </div>
-          </body>
-          </html>
-        `
-      };
-
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('✅ Status update email sent:', info.messageId);
-      return {
-        success: true,
-        messageId: info.messageId
-      };
-      
-    } catch (error) {
-      console.error('❌ Status update email failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
+          </div>
+        </body>
+        </html>
+      `
+    };
+    
+    const info = await this.transporter.sendMail(mailOptions);
+    console.log('✅ Status update email sent:', info.messageId);
+    
+    return {
+      success: true,
+      messageId: info.messageId,
+      status: status,
+      recipients: {
+        patient: patient.email,
+        system: process.env.SMTP_USER
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ Status update email failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      status: appointmentData.status
+    };
   }
+}
 }
 
 module.exports = new EmailService();
