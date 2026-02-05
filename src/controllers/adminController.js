@@ -203,10 +203,130 @@ const deleteUser = async (req, res) => {
   }
 };
 
+
+// Add these functions to your existing adminController.js
+// Place them before the module.exports at the bottom
+
+// Get admin profile
+const getAdminProfile = async (req, res) => {
+  try {
+    // User is already attached to req by auth middleware
+    const user = await User.findById(req.user._id).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    console.error('Error fetching admin profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching profile'
+    });
+  }
+};
+
+// Update admin profile
+const updateAdminProfile = async (req, res) => {
+  try {
+    const { name, phone } = req.body;
+    
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name is required'
+      });
+    }
+    
+    // Don't allow email or role changes
+    const updates = {};
+    if (name) updates.name = name;
+    if (phone !== undefined) updates.phone = phone;
+    
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+    
+    res.json({
+      success: true,
+      message: 'Admin profile updated successfully',
+      user
+    });
+  } catch (error) {
+    console.error('Error updating admin profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating profile'
+    });
+  }
+};
+
+// Update admin password
+const updateAdminPassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+    
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+    
+    // Verify current password
+    const isPasswordValid = await user.comparePassword(currentPassword);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+    
+    // Update password
+    user.password = newPassword;
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating admin password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating password'
+    });
+  }
+};
+
+
+
 module.exports = {
   createUser,
   getAllUsers,
   getClientsForStaff,
   updateUser,
-  deleteUser
+  deleteUser,
+    getAdminProfile,      // Add this
+  updateAdminProfile,   // Add this
+  updateAdminPassword 
 };

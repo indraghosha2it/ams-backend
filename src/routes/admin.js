@@ -8,9 +8,18 @@ const { authMiddleware, requireRole } = require('../middleware/auth');
 router.use(authMiddleware);
 router.use(requireRole('admin'));
 
+
+
+// Admin profile routes (should come BEFORE other routes)
+router.get('/profile', adminController.getAdminProfile);
+router.put('/profile', adminController.updateAdminProfile);
+router.put('/password', adminController.updateAdminPassword);
+
 // User management routes
 router.post('/users', adminController.createUser);
 router.get('/users', adminController.getAllUsers);
+router.get('/clients', adminController.getClientsForStaff); // new added
+
 router.put('/users/:id', adminController.updateUser);
 router.delete('/users/:id', adminController.deleteUser);
 
