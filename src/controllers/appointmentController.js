@@ -1099,6 +1099,7 @@ exports.updateAppointment = async (req, res) => {
                         newAppointmentTime: updates.appointmentTime || appointment.appointmentTime,
                         slotSerialNumber: updates.slotSerialNumber || appointment.slotSerialNumber,
                         appointmentId: appointment._id,
+                           status: 'confirmed',
                         remarks: 'Your appointment has been rescheduled by the clinic staff. It is now confirmed.'
                     });
 
@@ -2661,6 +2662,7 @@ exports.rescheduleAppointment = async (req, res) => {
                     newAppointmentTime: newAppointmentTime,
                     slotSerialNumber: newSlotSerialNumber,
                     appointmentId: appointment._id,
+                      status: 'pending',
                     remarks: 'Your appointment has been rescheduled. It is now pending approval by the clinic.'
                 });
 
@@ -2771,17 +2773,31 @@ exports.sendRescheduleEmail = async (req, res) => {
       });
     }
     
-    // Send reschedule email
+    // Ensure dates are in proper format for the email service
+    const formatDateForEmail = (date) => {
+      if (!date) return null;
+      
+      // If it's already a Date object or string that can be parsed
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) {
+        console.error('Invalid date:', date);
+        return null;
+      }
+      return dateObj;
+    };
+    
+    // Send reschedule email with properly formatted dates
     const emailResult = await emailService.sendAppointmentRescheduled({
       patient: appointment.patient,
       doctor: appointment.doctorInfo,
-      oldAppointmentDate: emailData.oldAppointmentDate || appointment.appointmentDate,
+      oldAppointmentDate: formatDateForEmail(emailData.oldAppointmentDate) || appointment.appointmentDate,
       oldAppointmentTime: emailData.oldAppointmentTime || appointment.appointmentTime,
-      newAppointmentDate: emailData.newAppointmentDate,
-      newAppointmentTime: emailData.newAppointmentTime,
-      slotSerialNumber: emailData.slotSerialNumber || appointment.slotSerialNumber,
+      newAppointmentDate: formatDateForEmail(emailData.newAppointmentDate) || formatDateForEmail(emailData.newAppointment?.date),
+      newAppointmentTime: emailData.newAppointmentTime || emailData.newAppointment?.time,
+      slotSerialNumber: emailData.slotSerialNumber || emailData.newAppointment?.serialNumber || appointment.slotSerialNumber,
       appointmentId: appointment._id,
-      remarks: emailData.remarks || 'Your appointment has been rescheduled by the clinic.'
+      remarks: emailData.remarks || 'Your appointment has been rescheduled by the clinic.',
+      status: emailData.status || 'confirmed'
     });
     
     // Update appointment with email status
