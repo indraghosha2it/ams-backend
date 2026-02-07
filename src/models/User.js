@@ -118,6 +118,21 @@ const userSchema = new mongoose.Schema({
     trim: true
   },
 
+    // Client-specific fields - make them optional initially for backward compatibility
+  dateOfBirth: {
+    type: Date,
+    default: null
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other', 'prefer-not-to-say', ''],
+    default: ''
+  },
+  address: {
+    type: String,
+    default: ''
+  },
+
   isActive: {
     type: Boolean,
     default: true
