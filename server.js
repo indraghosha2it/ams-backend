@@ -171,6 +171,54 @@ app.post('/api/appointments-test', async (req, res) => {
         });
     }
 });
+
+app.get('/api/test-db', async (req, res) => {
+  try {
+    console.log('🔧 Testing database connection...');
+    
+    // Test connection
+    const dbStatus = mongoose.connection.readyState;
+    const statusText = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    }[dbStatus] || 'unknown';
+    
+    // Try to run a simple query
+    const User = require('./src/models/user');
+    const userCount = await User.countDocuments({}).catch(() => null);
+    
+    res.json({
+      success: true,
+      mongodb: {
+        status: statusText,
+        readyState: dbStatus,
+        connected: dbStatus === 1,
+        database: mongoose.connection.db?.databaseName,
+        host: mongoose.connection.host,
+        port: mongoose.connection.port
+      },
+      testQuery: {
+        userCount: userCount !== null ? userCount : 'query_failed',
+        querySuccess: userCount !== null
+      },
+      environment: {
+        node_env: process.env.NODE_ENV,
+        mongodb_uri_set: !!process.env.MONGODB_URI,
+        uri_length: process.env.MONGODB_URI?.length || 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ DB test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
 // Auth routes
 
 app.use('/api/auth', authRoutes);
@@ -204,37 +252,115 @@ app.use((err, req, res, next) => {
 // MONGODB ATLAS CONNECTION
 // ====================
 
+// async function connectToMongoDB() {
+//   try {
+//     const mongoURI = process.env.MONGODB_URI;
+    
+//     if (!mongoURI) {
+//       throw new Error('MONGODB_URI not found in .env file');
+//     }
+    
+//     // Mask password for security in logs
+//     const maskedURI = mongoURI.replace(/:([^:@]+)@/, ':****@');
+//     console.log('📡 Connecting to:', maskedURI);
+    
+//     // MongoDB Atlas connection options
+//     const connectionOptions = {
+//       useNewUrlParser: true,
+//       useUnifiedTopology: true,
+//       serverSelectionTimeoutMS: 10000, // 10 seconds timeout for Atlas
+//       maxPoolSize: 10, // Connection pool size
+//       retryWrites: true,
+//       w: 'majority'
+//     };
+    
+//     console.log('⏳ Attempting connection...');
+//     await mongoose.connect(mongoURI, connectionOptions);
+    
+//     return mongoose.connection;
+    
+//   } catch (error) {
+//     throw new Error(`MongoDB connection failed: ${error.message}`);
+//   }
+// }
 async function connectToMongoDB() {
   try {
     const mongoURI = process.env.MONGODB_URI;
     
+    console.log('🔧 Checking MongoDB connection...');
+    console.log('📡 Environment:', process.env.NODE_ENV);
+    console.log('🔑 MONGODB_URI exists:', !!mongoURI);
+    
     if (!mongoURI) {
-      throw new Error('MONGODB_URI not found in .env file');
+      console.error('❌ MONGODB_URI is undefined!');
+      console.error('💡 Check Vercel environment variables');
+      throw new Error('MONGODB_URI not found in environment');
     }
     
-    // Mask password for security in logs
-    const maskedURI = mongoURI.replace(/:([^:@]+)@/, ':****@');
-    console.log('📡 Connecting to:', maskedURI);
+    // For debugging - show first 50 chars
+    console.log('🔑 URI starts with:', mongoURI.substring(0, 50) + '...');
     
-    // MongoDB Atlas connection options
+    // Enhanced connection options
     const connectionOptions = {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 10000, // 10 seconds timeout for Atlas
-      maxPoolSize: 10, // Connection pool size
+      serverSelectionTimeoutMS: 30000, // 30 seconds
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
       retryWrites: true,
-      w: 'majority'
+      w: 'majority',
+      // Add for Vercel serverless
+      maxIdleTimeMS: 10000,
+      // Remove deprecated options
     };
     
-    console.log('⏳ Attempting connection...');
+    console.log('⏳ Attempting MongoDB connection...');
     await mongoose.connect(mongoURI, connectionOptions);
+    
+    console.log('✅ MongoDB connected successfully!');
+    console.log(`💾 Database: ${mongoose.connection.db?.databaseName}`);
+    console.log(`📍 Host: ${mongoose.connection.host}`);
     
     return mongoose.connection;
     
   } catch (error) {
+    console.error('❌ MongoDB connection failed!');
+    console.error('Error details:', error.message);
+    console.error('Full error:', error);
     throw new Error(`MongoDB connection failed: ${error.message}`);
   }
 }
+
+// Retry connection if disconnected
+async function ensureMongoDBConnection() {
+  if (mongoose.connection.readyState === 1) {
+    return true; // Already connected
+  }
+  
+  console.log('🔄 Reconnecting to MongoDB...');
+  try {
+    await connectToMongoDB();
+    return true;
+  } catch (error) {
+    console.error('❌ Reconnection failed:', error.message);
+    return false;
+  }
+}
+
+// Call this before database operations
+app.use('/api/auth', async (req, res, next) => {
+  if (req.path === '/login' || req.path === '/register') {
+    const isConnected = await ensureMongoDBConnection();
+    if (!isConnected) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable',
+        error: 'DB_DISCONNECTED'
+      });
+    }
+  }
+  next();
+});
 
 // ====================
 // START SERVER
