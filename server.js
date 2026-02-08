@@ -17,7 +17,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000', 
     'http://localhost:5000',
-     'appointment@doctorappointment.a2itltd.com'
+   
     ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -39,6 +39,26 @@ const appointmentRoutes = require('./src/routes/appointment');
 // ====================
 // ROUTES
 // ====================
+
+
+// Add this root route handler:
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Appointment Management System API',
+    version: '1.0.0',
+    documentation: '/api',
+    health: '/api/health',
+    endpoints: {
+      auth: '/api/auth',
+      admin: '/api/admin',
+      staff: '/api/staff',
+      client: '/api/client',
+      doctors: '/api/doctors',
+      appointments: '/api/appointments'
+    }
+  });
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -152,7 +172,7 @@ app.post('/api/appointments-test', async (req, res) => {
     }
 });
 // Auth routes
-app.use('/api/auth', authRoutes);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes); // Add this line
 app.use('/api/staff', staffRoutes);
