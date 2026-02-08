@@ -228,6 +228,93 @@ app.use('/api/client', clientRoutes);
 app.use('/api/doctors', doctorRoutes);
 app.use('/api/appointments', appointmentRoutes);
 
+
+// ====================
+// PROTECTED ROUTE: Get Current User
+// ====================
+
+// Add this middleware to verify JWT tokens
+const jwt = require('jsonwebtoken');
+
+const authenticateToken = (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required'
+      });
+    }
+    
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+    
+  } catch (error) {
+    console.error('Token verification error:', error.message);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+    
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication failed'
+    });
+  }
+};
+
+// Add this endpoint (BEFORE the 404 handler)
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    // Get user from database
+    const User = require('./src/models/user');
+    const user = await User.findById(req.user.id)
+      .select('-password -__v')
+      .lean();
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ 
