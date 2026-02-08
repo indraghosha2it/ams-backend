@@ -6,7 +6,7 @@ const { authMiddleware, requireRole } = require('../middleware/auth');
 
 // All staff routes require authentication and staff role
 router.use(authMiddleware);
-router.use(requireRole('staff', 'admin')); // Allow both staff and admin
+router.use(requireRole('staff')); // Allow both staff and admin
 
 // Staff profile routes
 router.get('/profile', staffController.getStaffProfile);
