@@ -18,6 +18,7 @@ app.use(cors({
     'http://localhost:3000', 
     'http://localhost:5000',
     'https://marvelous-kataifi-a31d34.netlify.app',
+    'https://doctorappointment.a2itltd.com',
    
     ],
   credentials: true,
