@@ -17,6 +17,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000', 
     'http://localhost:5000',
+    'https://bespoke-lamington-995d09.netlify.app'
    
     ],
   credentials: true,
